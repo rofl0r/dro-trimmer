@@ -16,6 +16,4 @@
 #    along with DRO Trimmer.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import dtgui
-
-dtgui.run()
+import drotrim

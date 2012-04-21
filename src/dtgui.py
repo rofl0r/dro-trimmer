@@ -24,12 +24,33 @@
 # v0.2 2008/12/26.
 #
 import wx
-import drotrimmer
+import dro_data
+import dro_io
 import os.path
+import StringIO
+import traceback
 from regdata import registers
 
-gVERSION = "0.2"
+gVERSION = "3.0"
 gGUIIDS = {}
+
+def catchUnhandledExceptions(func):
+    def inner_func(self, *args, **kwds):
+        try:
+            func(self, *args, **kwds)
+        except Exception, e:
+            fp = StringIO.StringIO()
+            traceback.print_exc(file=fp)
+
+            traceback.print_exc()
+            alert = wx.MessageDialog(self.mainframe,
+                "An unhandled exception was thrown, please contact support.\n" +
+                "\nError:\n" + fp.getvalue(),
+                "Unhandled Exception",
+                wx.OK|wx.ICON_ERROR)
+            alert.ShowModal()
+            alert.Destroy()
+    return inner_func
 
 def guiID(name):
     """ Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
@@ -40,6 +61,9 @@ def guiID(name):
 
 class DTSongDataList(wx.ListCtrl):
     def __init__(self, parent, drosong):
+        """
+        @type drosong: DROSong
+        """
         wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.LC_SINGLE_SEL|wx.VSCROLL)
 
         self.drosong = drosong
@@ -56,10 +80,10 @@ class DTSongDataList(wx.ListCtrl):
         self.InsertColumn(2, "Value")
         self.InsertColumn(3, "Description")
         parent = self.GetParent()
-        self.SetColumnWidth(0, parent.GetCharWidth()*16)
-        self.SetColumnWidth(1, parent.GetCharWidth()*8)
-        self.SetColumnWidth(2, parent.GetCharWidth()*16)
-        self.SetColumnWidth(3, parent.GetCharWidth()*70)
+        self.SetColumnWidth(0, parent.GetCharWidth() * 16)
+        self.SetColumnWidth(1, parent.GetCharWidth() * 8)
+        self.SetColumnWidth(2, parent.GetCharWidth() * 16)
+        self.SetColumnWidth(3, parent.GetCharWidth() * 70)
  
     def OnGetItemText(self, item, column):
         # Possible TODO: split the description into sub-components
@@ -72,62 +96,18 @@ class DTSongDataList(wx.ListCtrl):
             return str(item).zfill(4) + ">"
         # Register
         elif column == 1:
-            data = self.drosong.getInstr(item)
-            cmd = data[0]
-            if cmd == 0x00: # delay, 1-byte
-                #return "DRO delay, 8-bit"
-                return "D-08"
-            elif cmd == 0x01: # delay, 2-bytes?
-                #return "DRO delay, 16-bit"
-                return "D-16"
-            elif cmd == 0x02 or cmd == 0x03: # switch cmd/val pair
-                return "BANK"
-            elif cmd == 0x04: # reg <- val pair, override
-                return hex(data[1])
-            else:
-                return hex(data[0])
+            return self.drosong.get_register_display(item)
         # Value
         elif column == 2:
-            data = self.drosong.getInstr(item)
-            cmd = data[0]
-            if cmd == 0x00 or cmd == 0x01: # delays
-                return str(data[1]) + " ms"
-            elif cmd == 0x02: # low cmd/val pair
-                return "low"
-            elif cmd == 0x03: # high cmd/val pair
-                return "high"
-            elif cmd == 0x04: # reg <- val pair, override
-                return hex(data[2]) + " (" + str(data[2]) + ")"
-            else:
-                return hex(data[1]) + " (" + str(data[1]) + ")"
+            return self.drosong.get_value_display(item)
         # Description
         elif column == 3:
-            data = self.drosong.getInstr(item)
-            cmd = data[0]
-            if cmd == 0x00:
-                return "Delay (8-bit)"
-            elif cmd == 0x01:
-                return "Delay (16-bit)"
-            elif cmd == 0x02:
-                return "Switch to low registers (OPL-3)"
-            elif cmd == 0x03:
-                return "Switch to high registers (OPL-3)"
-            elif cmd == 0x04:
-                if registers.has_key(data[1]):
-                    return registers[data[1]] + " (data override)"
-                else:
-                    return "(unknown) (data override)"
-            else:
-                if registers.has_key(cmd):
-                    return registers[cmd]
-                else:
-                    return "(unknown)"
-                    
+            return self.drosong.get_instruction_description(item)
 
     def GetItemCount(self):
         if self.drosong is None:
             return 0
-        return self.drosong.getLengthInstr()
+        return self.drosong.getLengthData()
 
     def SelectItem(self, event):
         self.selected = event.GetIndex()
@@ -138,11 +118,11 @@ class DTSongDataList(wx.ListCtrl):
 
     def SelectNextItem(self):
         oldsel = self.selected
-        if oldsel is not None and oldsel < self.GetItemCount()-1:
+        if oldsel is not None and oldsel < self.GetItemCount() - 1:
             self.Deselect()
-            self.SelectItemManual(oldsel+1)
+            self.SelectItemManual(oldsel + 1)
             # scroll if we're getting too near the bottom of the view
-            if oldsel+1 >= (self.GetTopItem() + self.GetCountPerPage()-2):
+            if oldsel+1 >= (self.GetTopItem() + self.GetCountPerPage() - 2):
                 self.ScrollLines(1)
 
     def CreateList(self, insong):
@@ -161,7 +141,7 @@ class DTSongDataList(wx.ListCtrl):
 
     def RefreshViewableItems(self):
         """ Updates items from the index of the topmost visible item to the index of the topmost visible item plus the number of items visible."""
-        self.RefreshItems(self.GetTopItem(), self.GetTopItem()+self.GetCountPerPage()) #redraw
+        self.RefreshItems(self.GetTopItem(), self.GetTopItem() + self.GetCountPerPage()) #redraw
 
     def RefreshItemCount(self):
         self.SetItemCount(self.GetItemCount())
@@ -180,11 +160,17 @@ class DTDialogFindReg(wx.Dialog):
         wx.Dialog.__init__(self, *args, **kwds)
         
         self.parent = args[0]
+        self.dro_version = args[1]
         
         # Choices are special values for DRO commands plus registers
         # formerly: [hex(rk) for rk in registers.keys()]
         # but give the option to search for unknown registers (up to 0x105)
-        self.regchoices = ["D-08", "D-16", "DALL", "BANK"] + [hex(rk) for rk in range(0x105)]
+        if self.dro_version == dro_data.DRO_FILE_V2:
+            # NOTE: could be some confusion with codemaps and low/high banks.
+            # Currently looks up the real register value (note the codemap index), and ignores banks.
+            self.regchoices = ["DLYS", "DLYL", "DALL"] + [('0x%02X' % rk) for rk in range(0xFF)]
+        else:
+            self.regchoices = ["D-08", "D-16", "DALL", "BANK"] + [('0x%02X' % rk) for rk in range(0x105)]
         
         self.lRegister = wx.StaticText(self, -1, "Instruction:")
         self.cbRegisters = wx.ComboBox(self, -1, choices=self.regchoices, style=wx.CB_DROPDOWN|wx.CB_DROPDOWN|wx.CB_READONLY)
@@ -337,6 +323,7 @@ class DTApp(wx.App):
         
     # ____________________
     # Start Menu Event Handlers
+    @catchUnhandledExceptions
     def menuOpenDRO(self, event):
         od = wx.FileDialog(self.mainframe,
                            "Open DRO",
@@ -344,7 +331,8 @@ class DTApp(wx.App):
                            style=wx.OPEN|wx.FILE_MUST_EXIST|wx.CHANGE_DIR)
         if od.ShowModal() == wx.ID_OK:
             filename = od.GetPath()
-            self.drosong, at, lm = drotrimmer.load_dro(filename)
+
+            self.drosong, at, lm = dro_io.DroFileIO().read(filename)
             self.mainframe.dtlist.CreateList(self.drosong)
             self.mainframe.statusbar.SetStatusText("Successfully opened " + os.path.basename(filename) + ".")
             # File was auto-trimmed, notify user
@@ -369,15 +357,15 @@ class DTApp(wx.App):
                             style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
 
-        
+    @catchUnhandledExceptions
     def menuSaveDRO(self, event):
         if self.drosong is None:
             self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
             return
-        filename = self.drosong.getName()
+        filename = self.drosong.name
         # Seeing as the filename is stored in the drosong, I should modify
         #  save_dro to only take a DROSong.
-        drotrimmer.save_dro(filename, self.drosong)
+        dro_io.DroFileIO().write(filename, self.drosong)
         self.mainframe.statusbar.SetStatusText("File saved to " + filename + ".")
     
     def menuSaveDROAs(self, event):
@@ -390,15 +378,17 @@ class DTApp(wx.App):
                            wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
                            style=wx.SAVE|wx.OVERWRITE_PROMPT|wx.CHANGE_DIR)
         if sd.ShowModal() == wx.ID_OK:
-            self.drosong.setName(sd.GetPath())
+            self.drosong.name = sd.GetPath()
             self.menuSaveDRO(event)
-            
     
     def menuExit(self, event):
         self.mainframe.Close(False)
     
     def menuFindReg(self, event):
-        self.frdialog = DTDialogFindReg(self.mainframe)
+        if self.drosong is None:
+            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
+            return
+        self.frdialog = DTDialogFindReg(self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
     
     def menuDelete(self, event):
@@ -418,29 +408,32 @@ class DTApp(wx.App):
     
     def menuAbout(self, event):
         ad = wx.MessageDialog(self.mainframe,
-            'DRO Trimmer ' + gVERSION + "\n" \
-            'Laurence Dougal Myers\n' + \
-            'Web: http://www.jestarjokin.net\n' +\
-            'E-Mail: jestarjokin@jestarjokin.net\n\n' + \
-            'Thanks to:\n' + \
-            'pi-r-squared for their original attempt at a DRO editor\n' + \
-            'The DOSBOX team',
+            ('DRO Trimmer ' + gVERSION + "\n"
+            'Laurence Dougal Myers\n' +
+            'Web: http://www.jestarjokin.net\n' +
+            'E-Mail: jestarjokin@jestarjokin.net\n\n' +
+            'Thanks to:\n' +
+            'The DOSBOX team\n' +
+            'The AdPlug team\n' +
+            'pi-r-squared for their original attempt at a DRO editor'),
             'About',
             style=wx.OK|wx.ICON_INFORMATION)
         ad.ShowModal()
     
     # ____________________
     # Start Button Event Handlers
+    @catchUnhandledExceptions
     def buttonDelete(self, event):
         if self.mainframe.dtlist.selected is not None:
             # I think all of this should be moved to the dtlist...
-            self.drosong.deleteInstruction(self.mainframe.dtlist.selected)
+            self.drosong.delete_instruction(self.mainframe.dtlist.selected)
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             # Prevents problems if we delete the last item
             if self.mainframe.dtlist.selected >= self.mainframe.dtlist.GetItemCount():
                 self.mainframe.dtlist.Deselect()
 
+    @catchUnhandledExceptions
     def buttonFindReg(self, event):
         rToFind = self.frdialog.cbRegisters.GetValue()
         if rToFind == '': return
@@ -448,7 +441,7 @@ class DTApp(wx.App):
             start = 0
         else:
             start = self.mainframe.dtlist.selected + 1
-        i = self.drosong.findNextInstr(start, rToFind)
+        i = self.drosong.find_next_instruction(start, rToFind)
         if i == -1:
             self.mainframe.statusbar.SetStatusText("Could not find another occurance of " + rToFind + ".")
             return
@@ -467,11 +460,7 @@ class DTApp(wx.App):
     def closeFrame(self, event):
         wx.Window.DestroyChildren(self.mainframe)
         wx.Window.Destroy(self.mainframe)
-    
 
-def loadtestsong():
-    return drotrimmer.load_dro("duneprg_001.dro")[0]
-    
 def run():
     app = None
     
