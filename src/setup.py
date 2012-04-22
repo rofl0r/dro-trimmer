@@ -25,6 +25,7 @@
 
 
 from distutils.core import setup
+import os
 import py2exe
 
 # includes for py2exe
@@ -40,9 +41,8 @@ setup(version = "3.0.0",
       windows = [
         {
             "script": "drotrim.py",
-            "icon_resources": [(1, "../dt.ico")]
+            "icon_resources": [(1, os.path.join("..", "dt.ico"))]
         }
       ],
       options=opts
-      )
-
+)

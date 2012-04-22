@@ -36,7 +36,10 @@ import dro_io
 import os.path
 import StringIO
 import traceback
-from regdata import registers
+try:
+    import win32api
+except ImportError:
+    win32api = None
 
 gVERSION = "3.0"
 gGUIIDS = {}
@@ -256,6 +259,12 @@ class DTMainFrame(wx.Frame):
         self.parent = kwds['dtparent']
         del kwds['dtparent']
         wx.Frame.__init__(self, *args, **kwds)
+
+        # set window icon (for Windows only)
+        if win32api is not None:
+            exeName = win32api.GetModuleFileName(win32api.GetModuleHandle(None))
+            icon = wx.Icon(exeName, wx.BITMAP_TYPE_ICO)
+            self.SetIcon(icon)
 
         self.statusbar = self.CreateStatusBar()
 
