@@ -95,9 +95,9 @@ class DROSong(object):
         instr = self.data[item]
         cmd = instr[0]
         if cmd == 0x00: # delay, 1-byte
-            return "DLYS"
+            return "D-08"
         elif cmd == 0x01: # delay, 2-bytes?
-            return "DLYL"
+            return "D-16"
         elif cmd == 0x02 or cmd == 0x03: # switch cmd/val pair
             return "BANK"
         elif cmd == 0x04: # reg <- val pair, override
@@ -260,4 +260,6 @@ class DROAnalyzer(object):
                 print("Result of analysis: first delay at pos = " + str(i))
                 break
 
-        return (result[0], result[1] + tmp_len, first_delay)
+        return (result[0],
+                result[1] + tmp_len,
+                first_delay)

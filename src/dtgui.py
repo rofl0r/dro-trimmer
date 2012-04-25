@@ -29,10 +29,6 @@
 #  are processed and displayed as appropriate. (How to handle multiple status bar things?
 #  perhaps display, wait, display).
 #
-
-import wx
-import dro_data
-import dro_io
 import os.path
 import StringIO
 import traceback
@@ -40,6 +36,14 @@ try:
     import win32api
 except ImportError:
     win32api = None
+import wx
+import dro_data
+import dro_io
+try:
+    import dro_player
+except ImportError:
+    dro_player = None
+
 
 gVERSION = "3.0"
 gGUIIDS = {}
@@ -85,7 +89,7 @@ class DTSongDataList(wx.ListCtrl):
         self.RegisterEvents()
 
     def CreateColumns(self):
-        self.InsertColumn(0, "Line")
+        self.InsertColumn(0, "Pos.")
         self.InsertColumn(1, "Reg")
         self.InsertColumn(2, "Value")
         self.InsertColumn(3, "Description")
@@ -136,7 +140,9 @@ class DTSongDataList(wx.ListCtrl):
                 self.ScrollLines(1)
 
     def CreateList(self, insong):
-        """ Regenerates the list based on data from a DROSong object. Takes a DROSong object."""
+        """ Regenerates the list based on data from a DROSong object. Takes a DROSong object.
+
+        @type insong: DROSong"""
         self.DeleteAllItems()
         if self.selected is not None:
             self.Deselect()
@@ -272,6 +278,8 @@ class DTMainFrame(wx.Frame):
         
         self.panel_1 = wx.Panel(self, -1)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
+        self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
+        self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
         
         self.__set_properties()
         self.__do_layout()
@@ -287,6 +295,8 @@ class DTMainFrame(wx.Frame):
         
         sizer_1 = wx.BoxSizer(wx.HORIZONTAL)
         sizer_1.Add(self.button_delete, 0, wx.FIXED_MINSIZE, 0)
+        sizer_1.Add(self.button_play, 0, wx.FIXED_MINSIZE, 0)
+        sizer_1.Add(self.button_stop, 0, wx.FIXED_MINSIZE, 0)
         self.panel_1.SetAutoLayout(1)
         self.panel_1.SetSizer(sizer_1)
         sizer_1.Fit(self.panel_1)
@@ -311,6 +321,12 @@ class DTMainFrame(wx.Frame):
 class DTApp(wx.App):
     def OnInit(self):
         self.drosong = None
+        # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
+        #  still make use of the editor.
+        if dro_player is not None:
+            self.dro_player = dro_player.DROPlayer()
+        else:
+            self.dro_player = None
         
         self.mainframe = DTMainFrame(None, -1, "DRO Trimmer", size=wx.Size(640, 480), dtparent=self)
         self.mainframe.Show(True)
@@ -331,6 +347,8 @@ class DTApp(wx.App):
         wx.EVT_MENU(self.mainframe, guiID("MENU_ABOUT"), self.menuAbout)
         
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_DELETE"), self.buttonDelete)
+        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY"), self.buttonPlay)
+        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_STOP"), self.buttonStop)
         
         
         wx.EVT_CLOSE(self.mainframe, self.closeFrame)
@@ -349,6 +367,9 @@ class DTApp(wx.App):
             filename = od.GetPath()
 
             self.drosong, at, lm = dro_io.DroFileIO().read(filename)
+            if self.dro_player is not None:
+                self.dro_player.stop()
+                self.dro_player.load_song(self.drosong)
             self.mainframe.dtlist.CreateList(self.drosong)
             self.mainframe.statusbar.SetStatusText("Successfully opened " + os.path.basename(filename) + ".")
             # File was auto-trimmed, notify user
@@ -431,6 +452,7 @@ class DTApp(wx.App):
             'Thanks to:\n' +
             'The DOSBOX team\n' +
             'The AdPlug team\n' +
+            'Adam Nielsen for PyOPL\n' +
             'pi-r-squared for their original attempt at a DRO editor'),
             'About',
             style=wx.OK|wx.ICON_INFORMATION)
@@ -441,6 +463,8 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     def buttonDelete(self, event):
         if self.mainframe.dtlist.selected is not None:
+            if self.dro_player is not None:
+                self.dro_player.stop()
             # I think all of this should be moved to the dtlist...
             self.drosong.delete_instruction(self.mainframe.dtlist.selected)
             self.mainframe.dtlist.RefreshItemCount()
@@ -448,6 +472,25 @@ class DTApp(wx.App):
             # Prevents problems if we delete the last item
             if self.mainframe.dtlist.selected >= self.mainframe.dtlist.GetItemCount():
                 self.mainframe.dtlist.Deselect()
+
+    def buttonPlay(self, event):
+        if self.drosong is None:
+            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
+            return
+        if self.dro_player is not None:
+            self.dro_player.stop()
+            self.dro_player.reset()
+            if self.mainframe.dtlist.selected is not None:
+                self.dro_player.seek_to_pos(self.mainframe.dtlist.selected)
+            self.dro_player.play()
+
+    def buttonStop(self, event):
+        if self.drosong is None:
+            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
+            return
+        if self.dro_player is not None:
+            self.dro_player.stop()
+            self.dro_player.reset()
 
     @catchUnhandledExceptions
     def buttonFindReg(self, event):
@@ -476,6 +519,8 @@ class DTApp(wx.App):
     def closeFrame(self, event):
         wx.Window.DestroyChildren(self.mainframe)
         wx.Window.Destroy(self.mainframe)
+        if self.dro_player is not None:
+            self.dro_player.stop()
 
 def run():
     app = None
@@ -486,6 +531,8 @@ def run():
         app.MainLoop()
     finally:
         if app is not None:
+            if app.dro_player is not None:
+                app.dro_player.stop() # usually not needed, since it's handled by closeFrame
             app.Destroy()
 
 if __name__ == "__main__": run()    
