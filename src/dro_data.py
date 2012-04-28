@@ -30,6 +30,14 @@ DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
 
 class DROSong(object):
+    """ NOTE: this actually implements methods for the V1 file format.
+    """
+    OPL_TYPE_MAP = [
+        "OPL-2",
+        "OPL-3",
+        "Dual OPL-2"
+    ]
+
     def __init__(self, file_version, name, data, ms_length, opl_type):
         self.file_version = file_version
         self.name = name
@@ -143,7 +151,19 @@ class DROSong(object):
                 reg_desc = "(unknown)"
             return reg_desc
 
+    def __str__(self):
+        return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
+            self.name, self.file_version, self.opl_type, self.OPL_TYPE_MAP[self.opl_type], self.ms_length
+        )
+
+
 class DROSongV2(DROSong):
+    OPL_TYPE_MAP = [
+        "OPL-2",
+        "Dual OPL-2",
+        "OPL-3"
+    ]
+
     def __init__(self, file_version, name, data, ms_length, opl_type, codemap, short_delay_code, long_delay_code):
         super(DROSongV2, self).__init__(file_version, name, data, ms_length, opl_type)
         self.codemap = codemap
@@ -194,7 +214,7 @@ class DROSongV2(DROSong):
         elif reg == self.long_delay_code:
             return "DLYL"
         else:
-            return '0x%02X' % (self.codemap[reg])
+            return '0x%03X' % ((reg & 0x80) << 1 | self.codemap[reg & 0x7F])
 
     def get_value_display(self, item):
         reg, val = self.data[item]
@@ -212,12 +232,20 @@ class DROSongV2(DROSong):
             return "Delay (long)"
         else:
             bank = "high" if reg & 0x80 else "low"
-            reg &= 0x7F
+            reg_lookup = reg & 0x7F
             try:
-                reg_desc = regdata.registers[self.codemap[reg]]
+                reg_desc = regdata.registers[self.codemap[reg_lookup]]
             except KeyError:
-                reg_desc = "(unknown)"
+                # OPL-3 has some special registers that are only in the high bank
+                if reg & 0x80:
+                    try:
+                        reg_desc = regdata.registers[0x100 | self.codemap[reg_lookup]]
+                    except KeyError:
+                        reg_desc = "(unknown)"
+                else:
+                    reg_desc = "(unknown)"
             return "%s (%s bank)" % (reg_desc, bank)
+
 
 class DROAnalyzer(object):
     def analyze_dro(self, dro_data):

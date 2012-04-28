@@ -184,9 +184,9 @@ class DTDialogFindReg(wx.Dialog):
         if self.dro_version == dro_data.DRO_FILE_V2:
             # NOTE: could be some confusion with codemaps and low/high banks.
             # Currently looks up the real register value (note the codemap index), and ignores banks.
-            self.regchoices = ["DLYS", "DLYL", "DALL"] + [('0x%02X' % rk) for rk in range(0xFF)]
+            self.regchoices = ["DLYS", "DLYL", "DALL"] + [('0x%02X' % rk) for rk in range(0x100)]
         else:
-            self.regchoices = ["D-08", "D-16", "DALL", "BANK"] + [('0x%02X' % rk) for rk in range(0x105)]
+            self.regchoices = ["D-08", "D-16", "DALL", "BANK"] + [('0x%02X' % rk) for rk in range(0x100)]
         
         self.lRegister = wx.StaticText(self, -1, "Instruction:")
         self.cbRegisters = wx.ComboBox(self, -1, choices=self.regchoices, style=wx.CB_DROPDOWN|wx.CB_DROPDOWN|wx.CB_READONLY)

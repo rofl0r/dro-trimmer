@@ -23,66 +23,77 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import ConfigParser
 import threading
 import pyaudio
 import pyopl
 import dro_data
 from dro_util import DROTrimmerException
 
-
 class OPLStream(object):
     """ Based on demo.py that comes with the PyOPL library.
     """
-    def __init__(self, frequency, buffer_size, bit_depth, audio_stream):
+    def __init__(self, frequency, buffer_size, bit_depth, channels, audio_stream):
         """
         @type frequency: int
         @type buffer_size: int
         @type bit_depth: int
         @type audio_stream: PyAudio
         """
-        global SAMPLE_SIZE
-        self.frequency = frequency
+        self.frequency = frequency # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
         self.bit_depth = bit_depth
+        self.channels = channels
         self.audio_stream = audio_stream # probably shouldn't be a local property...
-        self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8))
-        self.buffer = bytearray(buffer_size * (self.bit_depth / 8))
+        self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
+        self.buffer = bytearray(buffer_size * (self.bit_depth / 8) * self.channels)
+        self.pyaudio_buffer = buffer(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
+        self.samples_to_render = 0
+        self.bank = 0
 
     def write(self, register, value):
+        if self.bank:
+            register |= 0x100
         self.opl.writeReg(register, value)
 
     def render(self, length_ms):
-        samples_to_render = length_ms * self.frequency / 1000
-        leftover_size = samples_to_render % self.buffer_size
-        if leftover_size:
-            leftover = bytearray(leftover_size * (self.bit_depth / 8))
-        else:
-            leftover = None
-        tmp_buffer = self.buffer
-        while samples_to_render > 0 and not self.stop_requested:
-            if samples_to_render < self.buffer_size:
-                tmp_buffer = leftover
-            self.opl.getSamples(tmp_buffer)
-            pyaudio_buffer = buffer(tmp_buffer)
-            self.audio_stream.write(pyaudio_buffer)
-            samples_to_render -= self.buffer_size
+        # Taken from the PyOPL 1.1 demo.py. Slightly inaccurate as
+        #  long as you render around 44/48khz. Lower resolutions
+        #  will have more obvious problems.
+        self.samples_to_render += length_ms * self.frequency / 1000
+        while self.samples_to_render > self.buffer_size:
+            self.opl.getSamples(self.buffer)
+            self.audio_stream.write(self.pyaudio_buffer)
+            self.samples_to_render -= self.buffer_size
 
     def set_high_bank(self):
-        # TODO
-        pass
+        self.bank = 1
 
     def set_low_bank(self):
-        # TODO
-        pass
+        self.bank = 0
 
 
 class DROPlayer(object):
     def __init__(self):
-        self.frequency = 48000
+        # TODO: move config reading somewhere else
+        # TODO: separate frequency etc for opl rendering
+        #  (similar to DOSBox's mixer vs opl settings)
+        try:
+            config = ConfigParser.SafeConfigParser()
+            config_files_parsed = config.read(['drotrim.ini'])
+            if not len(config_files_parsed):
+                raise DROTrimmerException("Could not read drotrim.ini, using default audio options.")
+            self.frequency = config.getint("audio", "frequency")
+            #self.buffer_size = config.getint("audio", "buffer_size")
+            self.bit_depth = config.getint("audio", "bit_depth")
+        except Exception, e:
+            print "Could not read audio settings from drotrim.ini, using default values. (Error: %s)" % e
+            self.frequency = 48000
+            #self.buffer_size = 512
+            self.bit_depth = 16
         self.buffer_size = 512
-        self.bit_depth = 16
-        self.channels = 1
+        self.channels = 2
         audio = pyaudio.PyAudio()
         self.audio_stream = audio.open(
             format = audio.get_format_from_width(self.bit_depth / 8),
@@ -93,6 +104,7 @@ class DROPlayer(object):
         self.current_song = None
         self.is_playing = False
         self.pos = 0
+        self.time_elapsed = 0
         self.update_thread = None
 
     def load_song(self, new_song):
@@ -100,18 +112,22 @@ class DROPlayer(object):
         @type new_song: DROSongV2
         """
         self.is_playing = False
-        if self.current_song is not None:
-            self.reset()
         self.current_song = new_song
+        self.reset()
 
     def reset(self):
         self.is_playing = False
         self.pos = 0
+        self.time_elapsed = 0
         if self.update_thread is not None:
             self.update_thread.stop_request.set()
         self.update_thread = None # This thread gets created only when playing actually begins.
-        self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.audio_stream)
-        self.opl_stream.write(1, 32) # hack. Apparently always sets it to OPL-3 mode. Sounds better in my testing.
+        self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels, self.audio_stream)
+        if (self.current_song is not None
+            and self.current_song.file_version == dro_data.DRO_FILE_V1):
+            # Hack. DRO V1 files don't seem to set the "Waveform select" register
+            # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
+            self.opl_stream.write(1, 32)
 
     def play(self):
         self.is_playing = True
@@ -181,7 +197,8 @@ class DROSeekerV1(DROSeeker):
             datum = dro_player.current_song.data[dro_player.pos]
             cmd = datum[0]
             if cmd in (0x00, 0x01): # delay
-                pass # ignore delays
+                delay = datum[1]
+                dro_player.time_elapsed += delay
             elif cmd == 0x02:
                 dro_player.opl_stream.set_low_bank()
             elif cmd == 0x03:
@@ -199,15 +216,15 @@ class DROSeekerV2(DROSeeker):
     def seek(self, dro_player, pos_fraction):
         seek_pos = int(pos_fraction * dro_player.current_song.getLengthMS())
         dro_player.pos = 0
-        time_pos = 0
-        while time_pos < seek_pos and dro_player.pos < len(dro_player.current_song.data):
+        dro_player.time_elapsed = 0
+        while dro_player.time_elapsed < seek_pos and dro_player.pos < len(dro_player.current_song.data):
             reg, val = dro_player.current_song.data[dro_player.pos]
             if reg in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
-                time_pos += val
                 # If we go past the intended seek time, don't increment the position counter. This way we end up
                 #  before the seek time, rather than after it.
-                if time_pos < seek_pos:
+                if dro_player.time_elapsed + val > seek_pos:
                     break
+                dro_player.time_elapsed += val
             else:
                 if reg & 0x80:
                     dro_player.opl_stream.set_high_bank()
@@ -277,6 +294,9 @@ class DROPlayerUpdateThreadV1(DROPlayerUpdateThread):
                 reg, val = datum[0], datum[1]
                 self.dro_player.opl_stream.write(reg, val)
             self.dro_player.pos += 1
+            if self.dro_player.pos >= len(self.current_song.data):
+                self.dro_player.is_playing = False
+
 
 class DROPlayerUpdateThreadV2(DROPlayerUpdateThread):
     def run(self):
@@ -285,6 +305,7 @@ class DROPlayerUpdateThreadV2(DROPlayerUpdateThread):
                and not self.stop_request.isSet()):
             reg, val = self.current_song.data[self.dro_player.pos]
             if reg in (self.current_song.short_delay_code, self.current_song.long_delay_code):
+                self.dro_player.time_elapsed += val
                 self.dro_player.opl_stream.render(val)
             else:
                 if reg & 0x80:
@@ -302,18 +323,44 @@ def main():
     """ As a bonus, this module can be used as a standalone program to play a DRO song! (TODO)
     """
     import dro_io
+    import sys
     import time
-    #import dro_data
-    test_song = "pm2_001_out.dro"
+
+    if len(sys.argv) < 2:
+        print "Pass the name of the song to play as the first argument. e.g. 'dro_player cdshock_000.dro'"
+        return 1
+
+    song_to_play = sys.argv[1]
     file_reader = dro_io.DroFileIO()
-    dro_song = file_reader.read(test_song)[0]
+    dro_song = file_reader.read(song_to_play)[0]
     dro_player = DROPlayer()
     dro_player.load_song(dro_song)
-    dro_player.seek(0.9)
+    print str(dro_song)
+
+    def ms_to_timestr(ms_val):
+        # Stolen from StackOverflow, post by Sven Marnach
+        minutes, milliseconds = divmod(ms_val, 60000)
+        seconds = float(milliseconds) / 1000
+        return "%02i:%02i" % (minutes, seconds)
+
+    time_elapsed = 0
     dro_player.play()
-    while dro_player.is_playing:
-        print "Oh, still playing? Zzzz..."
-        time.sleep(1)
+    try:
+        while dro_player.is_playing:
+            # Pretty rough way of keeping time.
+            sys.stdout.write("\r" + ms_to_timestr(time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
+            sys.stdout.flush()
+            time.sleep(1)
+            time_elapsed += 1000
+        # Print the end time too (but cheat)
+        sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
+    except KeyboardInterrupt, ke:
+        pass
+    except Exception, e:
+        print e
+        return 2
+    return 0
 
-
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

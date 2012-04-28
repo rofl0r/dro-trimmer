@@ -228,6 +228,9 @@ class DroFileIOv2(object):
             raise DROFileException("Unsupported DRO v2 format. Only 0 is supported, found format ID %s" % iFormat)
         if iCompression != 0:
             raise DROFileException("Unsupported DRO v2 compression. Only 0 is supported, found compression ID %s" % iFormat)
+        if len(codemap) > 128:
+            raise DROFileException("DRO v2 file has too many entries in the codemap. Maximum 128, found %s. Is the file corrupt?" %
+                len(codemap))
 
         dro_calc_delay = 0
         dro_data = []
@@ -239,17 +242,15 @@ class DroFileIOv2(object):
             elif reg == iLongDelayCode:
                 val = (val + 1) << 8
                 dro_calc_delay += val
-            # could also use this opportunity to verify the reg value is < 128.
             dro_data.append((reg, val))
 
-        # TODO: auto-trim leading delay
         length_mismatch = dro_calc_delay != iLengthMS
-        auto_trimmed = False
+        auto_trimmed = False # no need to auto-trim for V2 files
 
-        # NOTE: iHardwareType value is different compared to V1. Really should cater for it.
+        # NOTE: iHardwareType value is different compared to V1. Really should cater for it better by converting to another value.
         return (DROSongV2(DRO_FILE_V2, file_name, dro_data, iLengthMS, iHardwareType, codemap, iShortDelayCode, iLongDelayCode),
                 auto_trimmed,
-                length_mismatch) # ignore auto-trim and length mismatch for now
+                length_mismatch)
 
     def write_data(self, drof, dro_song):
         """
