@@ -18,6 +18,8 @@ move %app_name% ..\zip
 cd ..\zip
 mkdir %app_name%\docs
 copy ..\docs\*.txt %app_name%\docs
+rem bleh, I'm a big dummy and don't know how to do this in setup.py
+copy ..\src\drotrim.ini %app_name%\
 
 %zippath% a -tzip -mx9 -r -x!_bak -x!src ..\%app_name%_bin_%thedate%.zip %app_name%
 cd ..

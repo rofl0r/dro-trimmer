@@ -44,7 +44,13 @@ setup(version = "3.2.0",
       windows = [
         {
             "script": "drotrim.py",
-            "icon_resources": [(1, os.path.join("..", "dt.ico"))]
+            "icon_resources": [(1, os.path.join("..", "dt.ico"))],
+            "data_files": [(".", ["drotrim.ini"])]
+        }
+      ],
+      console = [
+        {
+            "script": "dro_player.py"
         }
       ],
       options=opts
