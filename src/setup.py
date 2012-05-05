@@ -31,9 +31,12 @@ import py2exe
 # includes for py2exe
 includes=[]
 
-opts = { 'py2exe': { 'includes':includes } }
+opts = { 'py2exe': { 
+    'includes':includes,
+    "dll_excludes": ["MSVCP90.dll"]
+} }
 
-setup(version = "3.0.0",
+setup(version = "3.2.0",
       description = "DRO Trimmer",
       name = "DRO Trimmer",
       author = "Laurence Dougal Myers",

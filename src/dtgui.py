@@ -23,12 +23,6 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 #
-# Idea: have a message queue for processing components to communicate with GUI
-#  e.g. load_file adds a message to the queue. T
-#  At some point (either a set point in code, or in a thread?), all messages
-#  are processed and displayed as appropriate. (How to handle multiple status bar things?
-#  perhaps display, wait, display).
-#
 import os.path
 import StringIO
 import traceback
@@ -45,7 +39,7 @@ except ImportError:
     dro_player = None
 
 
-gVERSION = "3.0"
+gVERSION = "v3 r2"
 gGUIIDS = {}
 
 def catchUnhandledExceptions(func):
