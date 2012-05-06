@@ -49,23 +49,41 @@ class OPLStream(object):
         self.buffer = bytearray(buffer_size * (self.bit_depth / 8) * self.channels)
         self.pyaudio_buffer = buffer(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
-        self.samples_to_render = 0
+        self.samples_to_render = 0 # only used for PyOPL 1.1 rendering method
         self.bank = 0
 
     def write(self, register, value):
         if self.bank:
             register |= 0x100
+            # Could be re-written as "register |= self.bank << 2"
         self.opl.writeReg(register, value)
 
-    def render(self, length_ms):
+    def render_new(self, length_ms):
+        # Taken from PyOPL 1.0 and 1.2. Accurate rendering, though a bit inefficient.
+        samples_to_render = length_ms * self.frequency / 1000
+        while samples_to_render > 0 and not self.stop_requested:
+            if samples_to_render < self.buffer_size:
+                tmp_buffer = bytearray((samples_to_render % self.buffer_size) * (self.bit_depth / 8) * self.channels)
+                tmp_audio_buffer = buffer(tmp_buffer)
+                samples_to_render = 0
+            else:
+                tmp_buffer = self.buffer
+                tmp_audio_buffer = self.pyaudio_buffer
+                samples_to_render -= self.buffer_size
+            self.opl.getSamples(tmp_buffer)
+            self.audio_stream.write(buffer(tmp_audio_buffer))
+
+    def render_old(self, length_ms):
         # Taken from the PyOPL 1.1 demo.py. Slightly inaccurate as
         #  long as you render around 44/48khz. Lower resolutions
-        #  will have more obvious problems.
+        #  will have more obvious problems, try 8000 for example.
         self.samples_to_render += length_ms * self.frequency / 1000
         while self.samples_to_render > self.buffer_size:
             self.opl.getSamples(self.buffer)
             self.audio_stream.write(self.pyaudio_buffer)
             self.samples_to_render -= self.buffer_size
+
+    render = render_new
 
     def set_high_bank(self):
         self.bank = 1
@@ -189,6 +207,7 @@ class DROSeeker(object):
 class DROSeekerV1(DROSeeker):
     #def seek(self, dro_player, pos_fraction):
     #    pass
+    # TODO
 
     def seek_to_pos(self, dro_player, seek_pos):
         seek_pos = min(seek_pos, len(dro_player.current_song.data)) # make sure seek_pos is within bounds
@@ -214,39 +233,47 @@ class DROSeekerV1(DROSeeker):
 
 class DROSeekerV2(DROSeeker):
     def seek(self, dro_player, pos_fraction):
-        seek_pos = int(pos_fraction * dro_player.current_song.getLengthMS())
-        dro_player.pos = 0
-        dro_player.time_elapsed = 0
-        while dro_player.time_elapsed < seek_pos and dro_player.pos < len(dro_player.current_song.data):
-            reg, val = dro_player.current_song.data[dro_player.pos]
-            if reg in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
-                # If we go past the intended seek time, don't increment the position counter. This way we end up
-                #  before the seek time, rather than after it.
-                if dro_player.time_elapsed + val > seek_pos:
-                    break
-                dro_player.time_elapsed += val
-            else:
-                if reg & 0x80:
-                    dro_player.opl_stream.set_high_bank()
-                    reg &= 0x7F
+        try:
+            seek_pos = int(pos_fraction * dro_player.current_song.getLengthMS())
+            dro_player.pos = 0
+            dro_player.time_elapsed = 0
+            while dro_player.time_elapsed < seek_pos and dro_player.pos < len(dro_player.current_song.data):
+                reg, val = dro_player.current_song.data[dro_player.pos]
+                if reg in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
+                    # If we go past the intended seek time, don't increment the position counter. This way we end up
+                    #  before the seek time, rather than after it.
+                    if dro_player.time_elapsed + val > seek_pos:
+                        break
+                    dro_player.time_elapsed += val
                 else:
-                    dro_player.opl_stream.set_low_bank()
-                dro_player.opl_stream.write(dro_player.current_song.codemap[reg], val)
-            dro_player.pos += 1
+                    if reg & 0x80:
+                        dro_player.opl_stream.set_high_bank()
+                        reg &= 0x7F
+                    else:
+                        dro_player.opl_stream.set_low_bank()
+                    dro_player.opl_stream.write(dro_player.current_song.codemap[reg], val)
+                dro_player.pos += 1
+        except Exception, e:
+            dro_player.is_playing = False
+            raise e
 
     def seek_to_pos(self, dro_player, seek_pos):
-        seek_pos = min(seek_pos, len(dro_player.current_song.data)) # make sure seek_pos is within bounds
-        dro_player.pos = 0
-        while dro_player.pos < seek_pos:
-            reg, val = dro_player.current_song.data[dro_player.pos]
-            if reg not in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
-                if reg & 0x80:
-                    dro_player.opl_stream.set_high_bank()
-                    reg &= 0x7F
-                else:
-                    dro_player.opl_stream.set_low_bank()
-                dro_player.opl_stream.write(dro_player.current_song.codemap[reg], val)
-            dro_player.pos += 1
+        try:
+            seek_pos = min(seek_pos, len(dro_player.current_song.data)) # make sure seek_pos is within bounds
+            dro_player.pos = 0
+            while dro_player.pos < seek_pos:
+                reg, val = dro_player.current_song.data[dro_player.pos]
+                if reg not in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
+                    if reg & 0x80:
+                        dro_player.opl_stream.set_high_bank()
+                        reg &= 0x7F
+                    else:
+                        dro_player.opl_stream.set_low_bank()
+                    dro_player.opl_stream.write(dro_player.current_song.codemap[reg], val)
+                dro_player.pos += 1
+        except Exception, e:
+            dro_player.is_playing = False
+            raise e
 
 
 class DROPlayerUpdateThreadFactory(object):
@@ -275,54 +302,62 @@ class DROPlayerUpdateThread(threading.Thread):
 
 class DROPlayerUpdateThreadV1(DROPlayerUpdateThread):
     def run(self):
-        while (self.dro_player.pos < len(self.current_song.data)
-               and self.dro_player.is_playing
-               and not self.stop_request.isSet()):
-            datum = self.dro_player.current_song.data[self.dro_player.pos]
-            cmd = datum[0]
-            if cmd in (0x00, 0x01): # delay
-                delay = datum[1]
-                self.dro_player.opl_stream.render(delay)
-            elif cmd == 0x02:
-                self.dro_player.opl_stream.set_low_bank()
-            elif cmd == 0x03:
-                self.dro_player.opl_stream.set_high_bank()
-            elif cmd == 0x04:
-                reg, val = datum[1], datum[2]
-                self.dro_player.opl_stream.write(reg, val)
-            else:
-                reg, val = datum[0], datum[1]
-                self.dro_player.opl_stream.write(reg, val)
-            self.dro_player.pos += 1
-            if self.dro_player.pos >= len(self.current_song.data):
-                self.dro_player.is_playing = False
+        try:
+            while (self.dro_player.pos < len(self.current_song.data)
+                   and self.dro_player.is_playing
+                   and not self.stop_request.isSet()):
+                datum = self.dro_player.current_song.data[self.dro_player.pos]
+                cmd = datum[0]
+                if cmd in (0x00, 0x01): # delay
+                    delay = datum[1]
+                    self.dro_player.opl_stream.render(delay)
+                elif cmd == 0x02:
+                    self.dro_player.opl_stream.set_low_bank()
+                elif cmd == 0x03:
+                    self.dro_player.opl_stream.set_high_bank()
+                elif cmd == 0x04:
+                    reg, val = datum[1], datum[2]
+                    self.dro_player.opl_stream.write(reg, val)
+                else:
+                    reg, val = datum[0], datum[1]
+                    self.dro_player.opl_stream.write(reg, val)
+                self.dro_player.pos += 1
+                if self.dro_player.pos >= len(self.current_song.data):
+                    self.dro_player.is_playing = False
+        except Exception, e:
+            self.dro_player.is_playing = False
+            raise e
 
 
 class DROPlayerUpdateThreadV2(DROPlayerUpdateThread):
     def run(self):
-        while (self.dro_player.pos < len(self.current_song.data)
-               and self.dro_player.is_playing
-               and not self.stop_request.isSet()):
-            reg, val = self.current_song.data[self.dro_player.pos]
-            if reg in (self.current_song.short_delay_code, self.current_song.long_delay_code):
-                self.dro_player.time_elapsed += val
-                self.dro_player.opl_stream.render(val)
-            else:
-                if reg & 0x80:
-                    self.dro_player.opl_stream.set_high_bank()
-                    reg &= 0x7F
+        try:
+            while (self.dro_player.pos < len(self.current_song.data)
+                   and self.dro_player.is_playing
+                   and not self.stop_request.isSet()):
+                reg, val = self.current_song.data[self.dro_player.pos]
+                if reg in (self.current_song.short_delay_code, self.current_song.long_delay_code):
+                    self.dro_player.time_elapsed += val
+                    self.dro_player.opl_stream.render(val)
                 else:
-                    self.dro_player.opl_stream.set_low_bank()
-                self.dro_player.opl_stream.write(self.current_song.codemap[reg], val)
-            self.dro_player.pos += 1
-            if self.dro_player.pos >= len(self.current_song.data):
-                self.dro_player.is_playing = False
-
+                    if reg & 0x80:
+                        self.dro_player.opl_stream.set_high_bank()
+                        reg &= 0x7F
+                    else:
+                        self.dro_player.opl_stream.set_low_bank()
+                    self.dro_player.opl_stream.write(self.current_song.codemap[reg], val)
+                self.dro_player.pos += 1
+                if self.dro_player.pos >= len(self.current_song.data):
+                    self.dro_player.is_playing = False
+        except Exception, e:
+            self.dro_player.is_playing = False
+            raise e
 
 def main():
-    """ As a bonus, this module can be used as a standalone program to play a DRO song! (TODO)
+    """ As a bonus, this module can be used as a standalone program to play a DRO song!
     """
     import dro_io
+    import os
     import sys
     import time
 
@@ -331,6 +366,9 @@ def main():
         return 1
 
     song_to_play = sys.argv[1]
+    if not os.path.isfile(song_to_play):
+        print "Song does not appear to exist, or is not a file: %s" % song_to_play
+        return 3
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)[0]
     dro_player = DROPlayer()
