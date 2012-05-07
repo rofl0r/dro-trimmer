@@ -119,18 +119,19 @@ class DTSongDataList(wx.ListCtrl):
 
     def SelectItem(self, event):
         self.selected = event.GetIndex()
+        print self.selected
 
     def SelectItemManual(self, ind):
-        self.selected = ind
-        self.Select(self.selected, 1) # select
+        self.selected = ind # TODO: revise this
+        self.Select(self.selected, 1) # select # TODO: revise this
 
     def SelectNextItem(self):
-        oldsel = self.selected
+        oldsel = self.selected # TODO: revise this
         if oldsel is not None and oldsel < self.GetItemCount() - 1:
             self.Deselect()
             self.SelectItemManual(oldsel + 1)
             # scroll if we're getting too near the bottom of the view
-            if oldsel+1 >= (self.GetTopItem() + self.GetCountPerPage() - 2):
+            if oldsel + 1 >= (self.GetTopItem() + self.GetCountPerPage() - 2):
                 self.ScrollLines(1)
 
     def CreateList(self, insong):
@@ -138,7 +139,7 @@ class DTSongDataList(wx.ListCtrl):
 
         @type insong: DROSong"""
         self.DeleteAllItems()
-        if self.selected is not None:
+        if self.HasSelected():
             self.Deselect()
         self.drosong = insong
         self.SetItemCount(self.GetItemCount())
@@ -146,12 +147,14 @@ class DTSongDataList(wx.ListCtrl):
 
     def Deselect(self):
         ##if self.selected != None:
-            self.Select(self.selected, 0) # deselect
-            self.selected = None
+            self.Select(self.selected, 0) # deselect # TODO: revise this
+            self.selected = None # TODO: revise this
 
     def RefreshViewableItems(self):
         """ Updates items from the index of the topmost visible item to the index of the topmost visible item plus the number of items visible."""
-        self.RefreshItems(self.GetTopItem(), self.GetTopItem() + self.GetCountPerPage()) #redraw
+        first_index = self.GetTopItem()
+        last_index = min(self.GetTopItem() + self.GetCountPerPage(), self.GetItemCount() - 1)
+        self.RefreshItems(first_index, last_index) #redraw
 
     def RefreshItemCount(self):
         self.SetItemCount(self.GetItemCount())
@@ -159,6 +162,8 @@ class DTSongDataList(wx.ListCtrl):
     def RegisterEvents(self):
         wx.EVT_LIST_ITEM_SELECTED(self, -1, self.SelectItem)
 
+    def HasSelected(self):
+        return self.selected is not None # TODO: revise this
 
 class DTDialogFindReg(wx.Dialog):
     def __init__(self, *args, **kwds):
@@ -456,15 +461,15 @@ class DTApp(wx.App):
     # Start Button Event Handlers
     @catchUnhandledExceptions
     def buttonDelete(self, event):
-        if self.mainframe.dtlist.selected is not None:
+        if self.mainframe.dtlist.HasSelected():
             if self.dro_player is not None:
                 self.dro_player.stop()
             # I think all of this should be moved to the dtlist...
-            self.drosong.delete_instruction(self.mainframe.dtlist.selected)
+            self.drosong.delete_instruction(self.mainframe.dtlist.selected) # TODO: revise this
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             # Prevents problems if we delete the last item
-            if self.mainframe.dtlist.selected >= self.mainframe.dtlist.GetItemCount():
+            if self.mainframe.dtlist.selected >= self.mainframe.dtlist.GetItemCount(): # TODO: revise this
                 self.mainframe.dtlist.Deselect()
 
     def buttonPlay(self, event):
@@ -474,8 +479,8 @@ class DTApp(wx.App):
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.reset()
-            if self.mainframe.dtlist.selected is not None:
-                self.dro_player.seek_to_pos(self.mainframe.dtlist.selected)
+            if self.mainframe.dtlist.HasSelected():
+                self.dro_player.seek_to_pos(self.mainframe.dtlist.selected) # TODO: revise this
             self.dro_player.play()
 
     def buttonStop(self, event):
@@ -490,10 +495,10 @@ class DTApp(wx.App):
     def buttonFindReg(self, event):
         rToFind = self.frdialog.cbRegisters.GetValue()
         if rToFind == '': return
-        if self.mainframe.dtlist.selected is None:
+        if not self.mainframe.dtlist.HasSelected():
             start = 0
         else:
-            start = self.mainframe.dtlist.selected + 1
+            start = self.mainframe.dtlist.selected + 1 # TODO: revise this
         i = self.drosong.find_next_instruction(start, rToFind)
         if i == -1:
             self.mainframe.statusbar.SetStatusText("Could not find another occurance of " + rToFind + ".")
