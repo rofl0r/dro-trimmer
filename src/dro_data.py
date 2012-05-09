@@ -44,6 +44,8 @@ class DROSong(object):
         self.data = data
         self.ms_length = ms_length
         self.opl_type = opl_type
+        self.short_delay_code = 0x00
+        self.long_delay_code = 0x01
 
     def getLengthMS(self):
         return self.ms_length
@@ -60,11 +62,11 @@ class DROSong(object):
         #  looking for.
         i = start
         if inst == "D-08":
-            ct = lambda d, inst: d[0] == 0x00
+            ct = lambda d, inst: d[0] == self.short_delay_code
         elif inst == "D-16":
-            ct = lambda d, inst: d[0] == 0x01
+            ct = lambda d, inst: d[0] == self.long_delay_code
         elif inst == "DALL":
-            ct = lambda d, inst: d[0] == 0x00 or d[0] == 0x01
+            ct = lambda d, inst: d[0] in (self.short_delay_code, self.long_delay_code)
         elif inst == "BANK":
             ct = lambda d, inst: d[0] == 0x02 or d[0] == 0x03
         elif int(inst, 16) <= 0x04: # registers requiring override
@@ -93,11 +95,21 @@ class DROSong(object):
 
     def delete_instruction(self, i):
         """ Deletes instruction at given index."""
-        inst = self.data[i]
+        reg_and_val = self.data[i]
         # Update total delay count if removing a delay
-        if inst[0] == 0x00 or inst[0] == 0x01:
-            self.ms_length -= inst[1]
+        if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
+            self.ms_length -= reg_and_val[1]
         self.data = self.data[:i] + self.data[i + 1:]
+
+    def delete_instructions(self, index_list):
+        new_data = []
+        for i, reg_and_val in enumerate(self.data):
+            if i in index_list:
+                if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
+                    self.ms_length -= reg_and_val[1]
+            else:
+                new_data.append(reg_and_val)
+        self.data = new_data
 
     def get_register_display(self, item):
         instr = self.data[item]
@@ -199,14 +211,6 @@ class DROSongV2(DROSong):
 
         return -1
 
-    def delete_instruction(self, i):
-        """ Deletes instruction at given index."""
-        reg, val = self.data[i]
-        # Update total delay count if removing a delay
-        if reg in (self.short_delay_code, self.long_delay_code):
-            self.ms_length -= val
-        self.data = self.data[:i] + self.data[i + 1:]
-
     def get_register_display(self, item):
         reg, val = self.data[item]
         if reg == self.short_delay_code:
@@ -247,9 +251,33 @@ class DROSongV2(DROSong):
             return "%s (%s bank)" % (reg_desc, bank)
 
 
-class DROAnalyzer(object):
-    def analyze_dro(self, dro_data):
+class DROFirstDelayAnalyzer(object):
+    def __init__(self):
+        self.result = False
 
+    def analyze_dro(self, dro_song):
+        if not len(dro_song.data):
+            return
+        reg_and_val = dro_song.data[0]
+        if reg_and_val[0] in (dro_song.short_delay_code, dro_song.long_delay_code):
+            self.result = True
+
+
+class DROTotalDelayMismatchAnalyzer(object):
+    def __init__(self):
+        self.result = False
+
+    def analyze_dro(self, dro_song):
+        calc_delay = 0
+        for datum in dro_song.data:
+            reg = datum[0]
+            if reg in (dro_song.short_delay_code, dro_song.long_delay_code):
+                calc_delay += datum[1]
+        self.result = calc_delay != dro_song.ms_length
+
+class DROLoopAnalyzer(object):
+    def analyze_dro(self, dro_song):
+        dro_data = dro_song.data
         # Split the data in half and see what the largest matching block is.
         # This will give us an indication on whether or not the song loops, and if so,
         #  where the loop points are.

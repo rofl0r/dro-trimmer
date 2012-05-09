@@ -141,26 +141,7 @@ class DroFileIOv1(object):
         if m != "":
             raise DROFileException("Tried to read the specified number of bytes in the data stream, but there were some bytes left over!")
 
-        auto_trimmed = False
-        # Perform preliminary trimming.
-        # DOSBox seems to incorrectly write a long delay as the first instruction,
-        #  which is not counted towards the song length written in the DRO file;
-        #  it also causes instruments to get messed up (at least in AdPlug, which
-        #  considers the initial state dump to be everything before the first delay).
-        #  As such, we get rid of this bogus instruction.
-        if dro_data[0][0] == 0x00 or dro_data[0][0] == 0x01:
-            dro_calc_delay -= dro_data[0][1]
-            dro_data = dro_data[1:]
-            auto_trimmed = True
-            #print("Removed bogus initial delay, new dro_calc_delay is " + str(dro_calc_delay))
-        length_mismatch = False
-        if dro_calc_delay != dro_ms_length:
-            length_mismatch = True
-            #warning("Calculated song length does not match the file's stored song length.\n This is usually caused by a delay instruction near the start, but removing it might corrupt the song.")
-
-        return (DROSong(DRO_FILE_V1, file_name, dro_data, dro_ms_length, dro_opl_type),
-                auto_trimmed,
-                length_mismatch)
+        return DROSong(DRO_FILE_V1, file_name, dro_data, dro_ms_length, dro_opl_type)
 
     def write_data(self, drof, dro_song):
         """ Accepts a file name (string), and a DROSong object. Saves the DROSong
@@ -232,25 +213,17 @@ class DroFileIOv2(object):
             raise DROFileException("DRO v2 file has too many entries in the codemap. Maximum 128, found %s. Is the file corrupt?" %
                 len(codemap))
 
-        dro_calc_delay = 0
         dro_data = []
         for _ in xrange(iLengthPairs):
             reg, val = struct.unpack('2B', drof.read(2))
             if reg == iShortDelayCode:
                 val += 1
-                dro_calc_delay += val
             elif reg == iLongDelayCode:
                 val = (val + 1) << 8
-                dro_calc_delay += val
             dro_data.append((reg, val))
 
-        length_mismatch = dro_calc_delay != iLengthMS
-        auto_trimmed = False # no need to auto-trim for V2 files
-
         # NOTE: iHardwareType value is different compared to V1. Really should cater for it better by converting to another value.
-        return (DROSongV2(DRO_FILE_V2, file_name, dro_data, iLengthMS, iHardwareType, codemap, iShortDelayCode, iLongDelayCode),
-                auto_trimmed,
-                length_mismatch)
+        return DROSongV2(DRO_FILE_V2, file_name, dro_data, iLengthMS, iHardwareType, codemap, iShortDelayCode, iLongDelayCode)
 
     def write_data(self, drof, dro_song):
         """

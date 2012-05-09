@@ -72,10 +72,9 @@ class DTSongDataList(wx.ListCtrl):
         """
         @type drosong: DROSong
         """
-        wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.LC_SINGLE_SEL|wx.VSCROLL)
+        wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.VSCROLL)
 
         self.drosong = drosong
-        #self.selected = None
         self.parent = parent
         self.SetItemCount(self.GetItemCount()) # not as dumb as it looks. Because it's virtual, need to calculate the item count.
 
@@ -171,6 +170,15 @@ class DTSongDataList(wx.ListCtrl):
 
     def HasSelected(self):
         return self.GetSelectedItemCount() > 0
+
+    def GetAllSelected(self):
+        sel_items = []
+        item = self.GetFirstSelected()
+        while item != -1:
+            sel_items.append(item)
+            item = self.GetNextSelected(item)
+        return sel_items
+
 
 class DTDialogFindReg(wx.Dialog):
     def __init__(self, *args, **kwds):
@@ -323,7 +331,6 @@ class DTMainFrame(wx.Frame):
         self.SetSize((600, 400))
 
 
-
 class DTApp(wx.App):
     def OnInit(self):
         self.drosong = None
@@ -355,8 +362,7 @@ class DTApp(wx.App):
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_DELETE"), self.buttonDelete)
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY"), self.buttonPlay)
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_STOP"), self.buttonStop)
-        
-        
+
         wx.EVT_CLOSE(self.mainframe, self.closeFrame)
         
         wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListener)
@@ -372,7 +378,24 @@ class DTApp(wx.App):
         if od.ShowModal() == wx.ID_OK:
             filename = od.GetPath()
 
-            self.drosong, at, lm = dro_io.DroFileIO().read(filename)
+            importer = dro_io.DroFileIO()
+            self.drosong = importer.read(filename)
+
+            # Delete first instruction if it's a bogus delay (mostly for V1)
+            first_delay_analyzer = dro_data.DROFirstDelayAnalyzer()
+            first_delay_analyzer.analyze_dro(self.drosong)
+            if first_delay_analyzer.result:
+                self.drosong.delete_instruction(0)
+                auto_trimmed = True
+            else:
+                auto_trimmed = False
+
+            # Check if the totaly delay calculated doesn't match the delay recorded
+            #  in the DRO file header.
+            delay_mismatch_analyzer = dro_data.DROTotalDelayMismatchAnalyzer()
+            delay_mismatch_analyzer.analyze_dro(self.drosong)
+            delay_mismatch = delay_mismatch_analyzer.result
+
             if self.dro_player is not None:
                 self.dro_player.stop()
                 self.dro_player.load_song(self.drosong)
@@ -380,7 +403,7 @@ class DTApp(wx.App):
             self.mainframe.statusbar.SetStatusText("Successfully opened " + os.path.basename(filename) + ".")
             # File was auto-trimmed, notify user
             dats = "T" # despite auto-trimming string
-            if at:
+            if auto_trimmed:
                 dats = "Despite auto-trimming, t"
                 md = wx.MessageDialog(self.mainframe,
                             'The DRO was found to contain a bogus delay as\n' + \
@@ -390,7 +413,7 @@ class DTApp(wx.App):
                             style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
             # File has mismatch between measured and reported 
-            if lm:
+            if delay_mismatch:
                 md = wx.MessageDialog(self.mainframe,
                             dats + 'here was a mismatch between\n' + \
                             'the measured length of the song in milliseconds,\n' + \
@@ -472,13 +495,15 @@ class DTApp(wx.App):
             if self.dro_player is not None:
                 self.dro_player.stop()
             # I think all of this should be moved to the dtlist...
-            selected_item = self.mainframe.dtlist.GetFirstSelected()
-            self.drosong.delete_instruction(selected_item) # TODO: revise this
+            selected_items = self.mainframe.dtlist.GetAllSelected()
+            self.drosong.delete_instructions(selected_items)
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
-            # Prevents problems if we delete the last item
-            if selected_item >= self.mainframe.dtlist.GetItemCount(): # TODO: revise this
-                self.mainframe.dtlist.Deselect()
+            # Deselect all, and re-select only the first index we deleted.
+            first_item = selected_items[0]
+            self.mainframe.dtlist.Deselect()
+            if first_item < self.mainframe.dtlist.GetItemCount():
+                self.mainframe.dtlist.SelectItemManual(first_item)
 
     def buttonPlay(self, event):
         if self.drosong is None:
@@ -488,7 +513,7 @@ class DTApp(wx.App):
             self.dro_player.stop()
             self.dro_player.reset()
             if self.mainframe.dtlist.HasSelected():
-                self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected()) # TODO: revise this
+                self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected())
             self.dro_player.play()
 
     def buttonStop(self, event):
@@ -506,7 +531,7 @@ class DTApp(wx.App):
         if not self.mainframe.dtlist.HasSelected():
             start = 0
         else:
-            start = self.mainframe.dtlist.GetFirstSelected() + 1 # TODO: revise this
+            start = self.mainframe.dtlist.GetLastSelected() + 1
         i = self.drosong.find_next_instruction(start, rToFind)
         if i == -1:
             self.mainframe.statusbar.SetStatusText("Could not find another occurance of " + rToFind + ".")
