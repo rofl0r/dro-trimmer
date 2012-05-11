@@ -39,7 +39,7 @@ except ImportError:
     dro_player = None
 
 
-gVERSION = "v3 r3"
+gVERSION = "v3 r4"
 gGUIIDS = {}
 
 def catchUnhandledExceptions(func):

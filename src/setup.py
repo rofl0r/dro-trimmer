@@ -36,7 +36,7 @@ opts = { 'py2exe': {
     "dll_excludes": ["MSVCP90.dll"]
 } }
 
-setup(version = "3.3.0",
+setup(version = "3.4.0",
       description = "DRO Trimmer",
       name = "DRO Trimmer",
       author = "Laurence Dougal Myers",

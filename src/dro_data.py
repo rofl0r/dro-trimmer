@@ -275,6 +275,7 @@ class DROTotalDelayMismatchAnalyzer(object):
                 calc_delay += datum[1]
         self.result = calc_delay != dro_song.ms_length
 
+
 class DROLoopAnalyzer(object):
     def analyze_dro(self, dro_song):
         dro_data = dro_song.data
