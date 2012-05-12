@@ -103,7 +103,7 @@ class DTSongDataList(wx.ListCtrl):
         self.InsertColumn(2, "Value")
         self.InsertColumn(3, "Description")
         parent = self.GetParent()
-        self.SetColumnWidth(0, parent.GetCharWidth() * 16)
+        self.SetColumnWidth(0, parent.GetCharWidth() * 10)
         self.SetColumnWidth(1, parent.GetCharWidth() * 8)
         self.SetColumnWidth(2, parent.GetCharWidth() * 16)
         self.SetColumnWidth(3, parent.GetCharWidth() * 70)
@@ -411,6 +411,7 @@ class DTMainFrame(wx.Frame):
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
         self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
         self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
+        self.button_play_tail = wx.Button(self.panel_1, guiID("BUTTON_PLAY_TAIL"), "Play last 3 seconds")
         
         self.__set_properties()
         self.__do_layout()
@@ -428,6 +429,7 @@ class DTMainFrame(wx.Frame):
         sizer_1.Add(self.button_delete, 0, wx.FIXED_MINSIZE, 0)
         sizer_1.Add(self.button_play, 0, wx.FIXED_MINSIZE, 0)
         sizer_1.Add(self.button_stop, 0, wx.FIXED_MINSIZE, 0)
+        sizer_1.Add(self.button_play_tail, 0, wx.FIXED_MINSIZE, 0)
         self.panel_1.SetAutoLayout(1)
         self.panel_1.SetSizer(sizer_1)
         sizer_1.Fit(self.panel_1)
@@ -444,7 +446,6 @@ class DTMainFrame(wx.Frame):
         grid_sizer_1.AddGrowableRow(0, 90)
         
         self.Layout()
-        
         self.SetSize((600, 400))
 
 
@@ -463,6 +464,8 @@ class DTApp(wx.App):
         self.SetTopWindow(self.mainframe)
         
         self._RegisterEventHandlers()
+
+        self.tail_length = 3000
         
         return True
     
@@ -480,6 +483,7 @@ class DTApp(wx.App):
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_DELETE"), self.buttonDelete)
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY"), self.buttonPlay)
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_STOP"), self.buttonStop)
+        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY_TAIL"), self.buttonPlayTail)
 
         wx.EVT_CLOSE(self.mainframe, self.closeFrame)
         
@@ -536,7 +540,7 @@ class DTApp(wx.App):
                             dats + 'here was a mismatch between\n' + \
                             'the measured length of the song in milliseconds,\n' + \
                             'and the length stored in the DRO file.\n' + \
-                            'Buuuut, I wouldn\'t worry about it. Just tellin\' ya.',
+                            'You can fix this in the DRO Info page.',
                             'DRO timing mismatch',
                             style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
@@ -637,6 +641,14 @@ class DTApp(wx.App):
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.reset()
+
+    @requiresDROLoaded
+    def buttonPlayTail(self, event):
+        if self.dro_player is not None:
+            self.dro_player.stop()
+            self.dro_player.reset()
+            self.dro_player.seek_to_time(max(self.dro_player.current_song.ms_length - self.tail_length, 0))
+            self.dro_player.play()
 
     @catchUnhandledExceptions
     def buttonFindReg(self, event):

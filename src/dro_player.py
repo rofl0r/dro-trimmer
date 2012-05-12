@@ -163,39 +163,42 @@ class DROPlayer(object):
         if self.opl_stream is not None:
             self.opl_stream.stop_requested = True
 
-    def seek(self, pos_fraction):
-        seeker = DROSeekerFactory(self.current_song)
-        seeker.seek(self, pos_fraction)
+    def seek_to_time(self, seek_time):
+        seeker = DROSeekerFactory(self)
+        seeker.seek_to_time(seek_time)
 
     def seek_to_pos(self, seek_pos):
-        seeker = DROSeekerFactory(self.current_song)
-        seeker.seek_to_pos(self, seek_pos)
+        seeker = DROSeekerFactory(self)
+        seeker.seek_to_pos(seek_pos)
 
 
 class DROSeekerFactory(object):
-    def __new__(cls, dro_song):
-        if dro_song.file_version == dro_data.DRO_FILE_V1:
-            return DROSeekerV1()
-        elif dro_song.file_version == dro_data.DRO_FILE_V2:
-            return DROSeekerV2()
+    def __new__(cls, dro_player):
+        if dro_player.current_song.file_version == dro_data.DRO_FILE_V1:
+            return DROSeekerV1(dro_player)
+        elif dro_player.current_song.file_version == dro_data.DRO_FILE_V2:
+            return DROSeekerV2(dro_player)
         else:
             raise DROTrimmerException("DROSeekerFactory doesn't recognise the file format of the DRO song."
                                         "Expected one of (%s, %s), found %s instead." % (dro_data.DRO_FILE_V1,
                                                                                          dro_data.DRO_FILE_V2,
-                                                                                         dro_song.file_version))
+                                                                                         dro_player.current_song.file_version))
 
 
 class DROSeeker(object):
     """ Helper class to seek in DRO songs. Externalised from the player so the player class remains DRO-version neutral.
     """
+    
+    def __init__(self, dro_player):
+        self.dro_player = dro_player
+    
     # Could potentially merge with the updater thread, and have a flag to skip "rendering" of any sound.
-    def seek(self, dro_player, pos_fraction):
-        """Seeks by time to the given fraction of the total song length.
-         e.g. for a song that is 4:00 minutes long, pass in 0.5 to skip to approx. 2:00.
+    def seek_to_time(self, seek_time_ms):
+        """Seeks to the specified time
         """
         raise NotImplementedError()
 
-    def seek_to_pos(self, dro_player, seek_pos):
+    def seek_to_pos(self, seek_pos):
         """Seeks to a particular instruction position.
         This method is useful for playing a song from an instruction highlighted in the table editor.
         Note tha position has no real bearing on the length of the song in ms - for a song with 200 instructions,
@@ -208,71 +211,102 @@ class DROSeekerV1(DROSeeker):
     #def seek(self, dro_player, pos_fraction):
     #    pass
     # TODO
+    
+    def seek_to_time(self, seek_time_ms):
+        """ Seek time is clamped between 0 and the song's recorded ms_length."""
+        seek_time_ms = min(max(seek_time_ms, 0), self.dro_player.current_song.ms_length)
 
-    def seek_to_pos(self, dro_player, seek_pos):
-        seek_pos = min(seek_pos, len(dro_player.current_song.data)) # make sure seek_pos is within bounds
-        dro_player.pos = 0
-        while dro_player.pos < seek_pos:
-            datum = dro_player.current_song.data[dro_player.pos]
+        self.dro_player.pos = 0
+        while (self.dro_player.time_elapsed < seek_time_ms
+            and self.dro_player.pos < len(self.dro_player.current_song.data)):
+            datum = self.dro_player.current_song.data[self.dro_player.pos]
             cmd = datum[0]
             if cmd in (0x00, 0x01): # delay
                 delay = datum[1]
-                dro_player.time_elapsed += delay
+                # If we go past the intended seek time, don't increment the position counter. This way we end up
+                #  before the seek time, rather than after it.
+                if self.dro_player.time_elapsed + delay > seek_time_ms:
+                    break
+                self.dro_player.time_elapsed += delay
             elif cmd == 0x02:
-                dro_player.opl_stream.set_low_bank()
+                self.dro_player.opl_stream.set_low_bank()
             elif cmd == 0x03:
-                dro_player.opl_stream.set_high_bank()
+                self.dro_player.opl_stream.set_high_bank()
             elif cmd == 0x04:
                 reg, val = datum[1], datum[2]
-                dro_player.opl_stream.write(reg, val)
+                self.dro_player.opl_stream.write(reg, val)
             else:
                 reg, val = datum[0], datum[1]
-                dro_player.opl_stream.write(reg, val)
-            dro_player.pos += 1
+                self.dro_player.opl_stream.write(reg, val)
+            self.dro_player.pos += 1
+
+    def seek_to_pos(self, seek_pos):
+        seek_pos = min(seek_pos, len(self.dro_player.current_song.data)) # make sure seek_pos is within bounds
+        self.dro_player.pos = 0
+        while self.dro_player.pos < seek_pos:
+            datum = self.dro_player.current_song.data[self.dro_player.pos]
+            cmd = datum[0]
+            if cmd in (0x00, 0x01): # delay
+                delay = datum[1]
+                self.dro_player.time_elapsed += delay
+            elif cmd == 0x02:
+                self.dro_player.opl_stream.set_low_bank()
+            elif cmd == 0x03:
+                self.dro_player.opl_stream.set_high_bank()
+            elif cmd == 0x04:
+                reg, val = datum[1], datum[2]
+                self.dro_player.opl_stream.write(reg, val)
+            else:
+                reg, val = datum[0], datum[1]
+                self.dro_player.opl_stream.write(reg, val)
+            self.dro_player.pos += 1
 
 
 class DROSeekerV2(DROSeeker):
-    def seek(self, dro_player, pos_fraction):
+    def seek_to_time(self, seek_time_ms):
+        """ Seek time is clamped between 0 and the song's recorded ms_length."""
+        seek_time_ms = min(max(seek_time_ms, 0), self.dro_player.current_song.ms_length)
         try:
-            seek_pos = int(pos_fraction * dro_player.current_song.getLengthMS())
-            dro_player.pos = 0
-            dro_player.time_elapsed = 0
-            while dro_player.time_elapsed < seek_pos and dro_player.pos < len(dro_player.current_song.data):
-                reg, val = dro_player.current_song.data[dro_player.pos]
-                if reg in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
+            #seek_pos = int(pos_fraction * self.dro_player.current_song.getLengthMS())
+            self.dro_player.pos = 0
+            self.dro_player.time_elapsed = 0
+            while (self.dro_player.time_elapsed < seek_time_ms
+                   and self.dro_player.pos < len(self.dro_player.current_song.data)):
+                reg, val = self.dro_player.current_song.data[self.dro_player.pos]
+                if reg in (self.dro_player.current_song.short_delay_code, self.dro_player.current_song.long_delay_code):
                     # If we go past the intended seek time, don't increment the position counter. This way we end up
                     #  before the seek time, rather than after it.
-                    if dro_player.time_elapsed + val > seek_pos:
+                    if self.dro_player.time_elapsed + val > seek_time_ms:
                         break
-                    dro_player.time_elapsed += val
+                    self.dro_player.time_elapsed += val
                 else:
                     if reg & 0x80:
-                        dro_player.opl_stream.set_high_bank()
+                        self.dro_player.opl_stream.set_high_bank()
                         reg &= 0x7F
                     else:
-                        dro_player.opl_stream.set_low_bank()
-                    dro_player.opl_stream.write(dro_player.current_song.codemap[reg], val)
-                dro_player.pos += 1
+                        self.dro_player.opl_stream.set_low_bank()
+                    self.dro_player.opl_stream.write(self.dro_player.current_song.codemap[reg], val)
+                self.dro_player.pos += 1
         except Exception, e:
-            dro_player.is_playing = False
+            self.dro_player.is_playing = False
             raise e
 
-    def seek_to_pos(self, dro_player, seek_pos):
+    def seek_to_pos(self, seek_pos):
         try:
-            seek_pos = min(seek_pos, len(dro_player.current_song.data)) # make sure seek_pos is within bounds
-            dro_player.pos = 0
-            while dro_player.pos < seek_pos:
-                reg, val = dro_player.current_song.data[dro_player.pos]
-                if reg not in (dro_player.current_song.short_delay_code, dro_player.current_song.long_delay_code):
+            seek_pos = min(seek_pos, len(self.dro_player.current_song.data)) # make sure seek_pos is within bounds
+            self.dro_player.pos = 0
+            while self.dro_player.pos < seek_pos:
+                reg, val = self.dro_player.current_song.data[self.dro_player.pos]
+                if reg not in (self.dro_player.current_song.short_delay_code, self.dro_player.current_song.long_delay_code):
                     if reg & 0x80:
-                        dro_player.opl_stream.set_high_bank()
+                        self.dro_player.opl_stream.set_high_bank()
                         reg &= 0x7F
                     else:
-                        dro_player.opl_stream.set_low_bank()
-                    dro_player.opl_stream.write(dro_player.current_song.codemap[reg], val)
-                dro_player.pos += 1
+                        self.dro_player.opl_stream.set_low_bank()
+                    self.dro_player.opl_stream.write(self.dro_player.current_song.codemap[reg], val)
+                self.dro_player.pos += 1
         except Exception, e:
-            dro_player.is_playing = False
+            self.dro_player.is_playing = False
             raise e
 
 
@@ -370,7 +404,7 @@ def main():
         print "Song does not appear to exist, or is not a file: %s" % song_to_play
         return 3
     file_reader = dro_io.DroFileIO()
-    dro_song = file_reader.read(song_to_play)[0]
+    dro_song = file_reader.read(song_to_play)
     dro_player = DROPlayer()
     dro_player.load_song(dro_song)
     print str(dro_song)
