@@ -29,12 +29,14 @@ rem --- Package the source ---
 mkdir zip
 mkdir zip\%app_name%
 mkdir zip\%app_name%\src
+mkdir zip\%app_name%\res
 mkdir zip\%app_name%\docs
 xcopy src zip\%app_name%\src /E /EXCLUDE:setup_src_exclusions.txt
 copy *.bat zip\%app_name%\
 copy *.ico zip\%app_name%\
 copy setup_src_exclusions.txt zip\%app_name%\
 xcopy docs\*.txt zip\%app_name%\docs
+xcopy res\* zip\%app_name%\res
 
 cd zip
 %zippath% a -tzip -mx9 -r -x!_bak -x!.\src ..\%app_name%_src_%thedate%.zip %app_name%

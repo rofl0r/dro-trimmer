@@ -261,6 +261,7 @@ class DROTotalDelayCalculator(object):
                 calc_delay += datum[1]
         return calc_delay
 
+
 class DROFirstDelayAnalyzer(object):
     def __init__(self):
         self.result = False
