@@ -42,6 +42,14 @@ except ImportError:
 gVERSION = "v3 r5"
 gGUIIDS = {}
 
+def errorAlert(parent, msg, title="Error"):
+    alert = wx.MessageDialog(parent, #hrmmm
+            msg,
+            title,
+            wx.OK|wx.ICON_ERROR)
+    alert.ShowModal()
+    alert.Destroy()
+
 def catchUnhandledExceptions(func):
     def inner_func(self, *args, **kwds):
         try:
@@ -51,13 +59,20 @@ def catchUnhandledExceptions(func):
             traceback.print_exc(file=fp)
 
             traceback.print_exc()
-            alert = wx.MessageDialog(self.mainframe,
-                "An unhandled exception was thrown, please contact support.\n" +
-                "\nError:\n" + fp.getvalue(),
-                "Unhandled Exception",
-                wx.OK|wx.ICON_ERROR)
-            alert.ShowModal()
-            alert.Destroy()
+            errorAlert(self.mainframe, #that's a bit gross
+                 "An unhandled exception was thrown, please contact support.\n" +
+                   "\nError:\n" + fp.getvalue(),
+                "Unhandled Exception")
+    return inner_func
+
+def requiresDROLoaded(func):
+    def inner_func(self, *args, **kwds):
+        if self.drosong is None:
+            # A bit gross
+            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
+            return
+        else:
+            func(self, *args, **kwds)
     return inner_func
 
 def guiID(name):
@@ -66,6 +81,7 @@ def guiID(name):
     if not gGUIIDS.has_key(name):
         gGUIIDS[name] = wx.NewId()
     return gGUIIDS[name]
+
 
 class DTSongDataList(wx.ListCtrl):
     def __init__(self, parent, drosong):
@@ -207,7 +223,7 @@ class DTDialogFindReg(wx.Dialog):
         self.bOk = wx.Button(self, guiID("BUTTON_FINDREG"), "Find Next")
         self.bCancel = wx.Button(self, wx.ID_CANCEL, "Close")
         
-        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREG"), self.parent.parent.buttonFindReg)
+        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREG"), self.parent.parent.buttonFindReg) # gross
 
         self.__set_properties()
         self.__do_layout()
@@ -237,6 +253,105 @@ class DTDialogFindReg(wx.Dialog):
 
 # end of class DTDialogFindReg
 
+
+class DROInfoDialog ( wx.Dialog ):
+    def __init__(self, parent, dro_song, *args, **kwds):
+        # begin wxGlade: MyDialog.__init__
+        kwds["style"] = wx.DEFAULT_DIALOG_STYLE
+        wx.Dialog.__init__(self, parent, *args, **kwds)
+        self.lDROVersion = wx.StaticText(self, -1, "DRO Version")
+        self.tcDROVersion = wx.TextCtrl(self, -1, str(dro_song.file_version))
+        self.lHardwareType = wx.StaticText(self, -1, "Hardware Type")
+        self.cHardwareType = wx.Choice(self, -1, choices=dro_song.OPL_TYPE_MAP)
+        self.cHardwareType.Select(dro_song.opl_type)
+        self.lLengthMs = wx.StaticText(self, -1, "Length (MS)")
+        self.tcLengthMs = wx.TextCtrl(self, -1, str(dro_song.ms_length))
+        self.lLengthMsCalc = wx.StaticText(self, -1, "Calculated Length (MS)")
+        calculated_delay = dro_data.DROTotalDelayCalculator().sum_delay(dro_song)
+        self.tcLengthMsCalc = wx.TextCtrl(self, -1, str(calculated_delay))
+        self.bEdit = wx.Button(self, guiID("BUTTON_DROINFO_EDIT"), "Edit")
+        self.bClose = wx.Button(self, wx.ID_CANCEL, "Close")
+
+        self.__set_properties()
+        self.__do_layout()
+        # end wxGlade
+
+        self.dro_song = dro_song
+        self.edit_mode = False
+        wx.EVT_BUTTON(self, guiID("BUTTON_DROINFO_EDIT"), self.EditSaveButtonEvent)
+
+    def __set_properties(self):
+        # begin wxGlade: MyDialog.__set_properties
+        self.SetTitle("DRO Info")
+        self.SetSize((330, 242))
+        self.tcDROVersion.Disable()
+        self.cHardwareType.Disable()
+        self.tcLengthMs.Disable()
+        self.tcLengthMsCalc.Disable()
+        self.bClose.SetDefault()
+        # end wxGlade
+
+    def __do_layout(self):
+        # begin wxGlade: MyDialog.__do_layout
+        sMain = wx.GridSizer(5, 2, 0, 0)
+        sButtons = wx.BoxSizer(wx.HORIZONTAL)
+        sMain.Add(self.lDROVersion, 0, wx.ALL, 5)
+        sMain.Add(self.tcDROVersion, 0, wx.ALL, 5)
+        sMain.Add(self.lHardwareType, 0, wx.ALL, 5)
+        sMain.Add(self.cHardwareType, 0, wx.ALL, 5)
+        sMain.Add(self.lLengthMs, 0, wx.ALL, 5)
+        sMain.Add(self.tcLengthMs, 0, wx.ALL, 5)
+        sMain.Add(self.lLengthMsCalc, 0, wx.ALL, 5)
+        sMain.Add(self.tcLengthMsCalc, 0, wx.ALL, 5)
+        sMain.Add((0, 0), 1, wx.EXPAND, 5)
+        sButtons.Add(self.bEdit, 1, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 5)
+        sButtons.Add(self.bClose, 1, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 5)
+        sMain.Add(sButtons, 1, wx.EXPAND | wx.ALIGN_RIGHT, 5)
+        self.SetSizer(sMain)
+        self.Layout()
+
+    def EditSaveButtonEvent(self, event):
+        if self.edit_mode:
+            self.SaveChanges(event)
+        else:
+            self.StartEditMode(event)
+
+    def StartEditMode(self, event):
+        md = wx.MessageDialog(self,
+            ("Editing this information is not recommended, and is only required for broken DRO files. "
+                "I would try ripping the song again, instead. "
+                "Don't alter anything here if you don't have to!\n"
+                "Proceed?"),
+            style=wx.OK|wx.CANCEL|wx.ICON_EXCLAMATION)
+        result = md.ShowModal()
+        md.Destroy()
+        if result == wx.ID_OK:
+            self.edit_mode = True
+            #self.tcDROVersion.Enable()
+            self.cHardwareType.Enable()
+            self.tcLengthMs.Enable()
+            self.bEdit.SetLabel("Save")
+            self.bClose.SetLabel("Cancel")
+
+    def SaveChanges(self, event):
+        # Probably should move this to the App class
+        try:
+            opl_type = self.cHardwareType.GetSelection()
+            assert 0 < opl_type < len(self.dro_song.OPL_TYPE_MAP)
+            ms_length = int(self.tcLengthMs.GetValue())
+        except Exception, e:
+            errorAlert(self, "Error updating DRO info, check that the entered values are correct.")
+            return
+        self.dro_song.opl_type = opl_type
+        self.dro_song.ms_length = ms_length
+        md = wx.MessageDialog(self,
+            "DRO info updated.\n"
+            "Remember to save the file.",
+            style=wx.OK|wx.ICON_INFORMATION)
+        md.ShowModal()
+        md.Destroy()
+
+
 class DTMainMenuBar(wx.MenuBar):
     def __init__(self, *args, **kwds):
         wx.MenuBar.__init__(self, *args, **kwds)
@@ -252,6 +367,7 @@ class DTMainMenuBar(wx.MenuBar):
 
         self.menuEdit = wx.Menu()
         self.menuEdit.Append(guiID("MENU_FINDREG"), "Find Register", "Find the next occurance of a register.", wx.ITEM_NORMAL)
+        self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO Info", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
         self.menuEdit.Append(guiID("MENU_DELETE"), "Delete", "Deletes the currently selected instruction.", wx.ITEM_NORMAL)
         self.Append(self.menuEdit, "Edit")
@@ -272,6 +388,7 @@ class DTMainMenuBar(wx.MenuBar):
 
     def __do_layout(self):
         pass
+
 
 class DTMainFrame(wx.Frame):
     def __init__(self, *args, **kwds):
@@ -356,6 +473,7 @@ class DTApp(wx.App):
         wx.EVT_MENU(self.mainframe, wx.ID_EXIT, self.menuExit)
         wx.EVT_MENU(self.mainframe, guiID("MENU_FINDREG"), self.menuFindReg)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DELETE"), self.menuDelete)
+        wx.EVT_MENU(self.mainframe, guiID("MENU_DROINFO"), self.menuDROInfo)
         wx.EVT_MENU(self.mainframe, wx.ID_HELP, self.menuHelp)
         wx.EVT_MENU(self.mainframe, guiID("MENU_ABOUT"), self.menuAbout)
         
@@ -424,21 +542,16 @@ class DTApp(wx.App):
                 md.ShowModal()
 
     @catchUnhandledExceptions
+    @requiresDROLoaded
     def menuSaveDRO(self, event):
-        if self.drosong is None:
-            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
-            return
         filename = self.drosong.name
         # Seeing as the filename is stored in the drosong, I should modify
         #  save_dro to only take a DROSong.
         dro_io.DroFileIO().write(filename, self.drosong)
         self.mainframe.statusbar.SetStatusText("File saved to " + filename + ".")
-    
+
+    @requiresDROLoaded
     def menuSaveDROAs(self, event):
-        if self.drosong is None:
-            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
-            return
-        
         sd = wx.FileDialog(self.mainframe,
                            "Save DRO file",
                            wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
@@ -449,17 +562,21 @@ class DTApp(wx.App):
     
     def menuExit(self, event):
         self.mainframe.Close(False)
-    
+
+    @requiresDROLoaded
     def menuFindReg(self, event):
-        if self.drosong is None:
-            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
-            return
         self.frdialog = DTDialogFindReg(self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
     
     def menuDelete(self, event):
         self.buttonDelete(None)
-    
+
+    @requiresDROLoaded
+    def menuDROInfo(self, event):
+        dro_info_dialog = DROInfoDialog(self.mainframe, self.drosong)
+        dro_info_dialog.ShowModal()
+        dro_info_dialog.Destroy()
+
     def menuHelp(self, event):
         hd = wx.MessageDialog(self.mainframe,
             '1) Select an instruction.\n' + \
@@ -490,6 +607,7 @@ class DTApp(wx.App):
     # ____________________
     # Start Button Event Handlers
     @catchUnhandledExceptions
+    @requiresDROLoaded
     def buttonDelete(self, event):
         if self.mainframe.dtlist.HasSelected():
             if self.dro_player is not None:
@@ -505,10 +623,8 @@ class DTApp(wx.App):
             if first_item < self.mainframe.dtlist.GetItemCount():
                 self.mainframe.dtlist.SelectItemManual(first_item)
 
+    @requiresDROLoaded
     def buttonPlay(self, event):
-        if self.drosong is None:
-            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
-            return
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.reset()
@@ -516,10 +632,8 @@ class DTApp(wx.App):
                 self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected())
             self.dro_player.play()
 
+    @requiresDROLoaded
     def buttonStop(self, event):
-        if self.drosong is None:
-            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
-            return
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.reset()

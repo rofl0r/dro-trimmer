@@ -251,11 +251,24 @@ class DROSongV2(DROSong):
             return "%s (%s bank)" % (reg_desc, bank)
 
 
+class DROTotalDelayCalculator(object):
+    def sum_delay(self, dro_song):
+        # Bleh
+        calc_delay = 0
+        for datum in dro_song.data:
+            reg = datum[0]
+            if reg in (dro_song.short_delay_code, dro_song.long_delay_code):
+                calc_delay += datum[1]
+        return calc_delay
+
 class DROFirstDelayAnalyzer(object):
     def __init__(self):
         self.result = False
 
     def analyze_dro(self, dro_song):
+        """
+        @type dro_song: DROSong
+        """
         if not len(dro_song.data):
             return
         reg_and_val = dro_song.data[0]
@@ -268,13 +281,8 @@ class DROTotalDelayMismatchAnalyzer(object):
         self.result = False
 
     def analyze_dro(self, dro_song):
-        calc_delay = 0
-        for datum in dro_song.data:
-            reg = datum[0]
-            if reg in (dro_song.short_delay_code, dro_song.long_delay_code):
-                calc_delay += datum[1]
+        calc_delay = DROTotalDelayCalculator().sum_delay(dro_song)
         self.result = calc_delay != dro_song.ms_length
-
 
 class DROLoopAnalyzer(object):
     def analyze_dro(self, dro_song):
