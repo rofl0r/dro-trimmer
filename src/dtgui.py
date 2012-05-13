@@ -39,7 +39,7 @@ except ImportError:
     dro_player = None
 
 
-gVERSION = "v3 r5"
+gVERSION = "v3 r6"
 gGUIIDS = {}
 
 def errorAlert(parent, msg, title="Error"):
@@ -466,6 +466,7 @@ class DTApp(wx.App):
         self._RegisterEventHandlers()
 
         self.tail_length = 3000
+        self.frdialog = None # Find Register dialog
         
         return True
     
@@ -486,8 +487,8 @@ class DTApp(wx.App):
         wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY_TAIL"), self.buttonPlayTail)
 
         wx.EVT_CLOSE(self.mainframe, self.closeFrame)
-        
-        wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListener)
+
+        wx.EVT_KEY_DOWN(self, self.keyListener)
         
     # ____________________
     # Start Menu Event Handlers
@@ -569,6 +570,8 @@ class DTApp(wx.App):
 
     @requiresDROLoaded
     def menuFindReg(self, event):
+        if self.frdialog is not None:
+            self.frdialog.Destroy() # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
         self.frdialog = DTDialogFindReg(self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
     
@@ -592,6 +595,7 @@ class DTApp(wx.App):
             'Help',
             style=wx.OK|wx.ICON_INFORMATION)
         hd.ShowModal()
+        hd.Destroy()
     
     def menuAbout(self, event):
         ad = wx.MessageDialog(self.mainframe,
@@ -607,6 +611,7 @@ class DTApp(wx.App):
             'About',
             style=wx.OK|wx.ICON_INFORMATION)
         ad.ShowModal()
+        ad.Destroy()
     
     # ____________________
     # Start Button Event Handlers
@@ -662,6 +667,7 @@ class DTApp(wx.App):
         if i == -1:
             self.mainframe.statusbar.SetStatusText("Could not find another occurance of " + rToFind + ".")
             return
+        self.mainframe.dtlist.Deselect()
         self.mainframe.dtlist.SelectItemManual(i)
         self.mainframe.dtlist.EnsureVisible(i)
         self.mainframe.dtlist.RefreshViewableItems()
@@ -671,14 +677,38 @@ class DTApp(wx.App):
     # Start Misc Event Handlers
     def keyListener(self, event):
         keycode = event.GetKeyCode()
-        if keycode == wx.WXK_DELETE or keycode == wx.WXK_BACK: # delete or backspace
+        if keycode in (wx.WXK_DELETE, wx.WXK_BACK): # delete or backspace
             self.buttonDelete(None)
+        elif keycode == 70 and event.CmdDown(): # CTRL-F
+            self.menuFindReg(event)
+        elif keycode == 73 and event.CmdDown(): # CTRL-I
+            self.menuDROInfo(event)
+        elif keycode == 83 and event.ShiftDown() and event.CmdDown(): # CTRL-SHIFT-S
+            self.menuSaveDROAs(event)
+        elif keycode == 83 and event.CmdDown(): # CTRL-S
+            self.menuSaveDRO(event)
+        elif keycode == 79 and event.CmdDown(): # CTRL-O
+            self.menuOpenDRO(event)
+        elif keycode == 72 and event.CmdDown(): # CTRL-H
+            self.menuHelp(event)
+        elif keycode == 32:
+            self.togglePlayback(event)
+        else:
+            #print keycode
+            event.Skip()
         
     def closeFrame(self, event):
         wx.Window.DestroyChildren(self.mainframe)
         wx.Window.Destroy(self.mainframe)
         if self.dro_player is not None:
             self.dro_player.stop()
+
+    def togglePlayback(self, event):
+        if self.dro_player is not None:
+            if self.dro_player.is_playing:
+                self.buttonStop(event)
+            else:
+                self.buttonPlay(event)
 
 def run():
     app = None

@@ -336,57 +336,51 @@ class DROPlayerUpdateThread(threading.Thread):
 
 
 class DROPlayerUpdateThreadV1(DROPlayerUpdateThread):
+    @stopPlayerOnException
     def run(self):
-        try:
-            while (self.dro_player.pos < len(self.current_song.data)
-                   and self.dro_player.is_playing
-                   and not self.stop_request.isSet()):
-                datum = self.dro_player.current_song.data[self.dro_player.pos]
-                cmd = datum[0]
-                if cmd in (0x00, 0x01): # delay
-                    delay = datum[1]
-                    self.dro_player.opl_stream.render(delay)
-                elif cmd == 0x02:
-                    self.dro_player.opl_stream.set_low_bank()
-                elif cmd == 0x03:
-                    self.dro_player.opl_stream.set_high_bank()
-                elif cmd == 0x04:
-                    reg, val = datum[1], datum[2]
-                    self.dro_player.opl_stream.write(reg, val)
-                else:
-                    reg, val = datum[0], datum[1]
-                    self.dro_player.opl_stream.write(reg, val)
-                self.dro_player.pos += 1
-                if self.dro_player.pos >= len(self.current_song.data):
-                    self.dro_player.is_playing = False
-        except Exception, e:
-            self.dro_player.is_playing = False
-            raise e
+        while (self.dro_player.pos < len(self.current_song.data)
+               and self.dro_player.is_playing
+               and not self.stop_request.isSet()):
+            datum = self.dro_player.current_song.data[self.dro_player.pos]
+            cmd = datum[0]
+            if cmd in (0x00, 0x01): # delay
+                delay = datum[1]
+                self.dro_player.opl_stream.render(delay)
+            elif cmd == 0x02:
+                self.dro_player.opl_stream.set_low_bank()
+            elif cmd == 0x03:
+                self.dro_player.opl_stream.set_high_bank()
+            elif cmd == 0x04:
+                reg, val = datum[1], datum[2]
+                self.dro_player.opl_stream.write(reg, val)
+            else:
+                reg, val = datum[0], datum[1]
+                self.dro_player.opl_stream.write(reg, val)
+            self.dro_player.pos += 1
+            if self.dro_player.pos >= len(self.current_song.data):
+                self.dro_player.is_playing = False
 
 
 class DROPlayerUpdateThreadV2(DROPlayerUpdateThread):
+    @stopPlayerOnException
     def run(self):
-        try:
-            while (self.dro_player.pos < len(self.current_song.data)
-                   and self.dro_player.is_playing
-                   and not self.stop_request.isSet()):
-                reg, val = self.current_song.data[self.dro_player.pos]
-                if reg in (self.current_song.short_delay_code, self.current_song.long_delay_code):
-                    self.dro_player.time_elapsed += val
-                    self.dro_player.opl_stream.render(val)
+        while (self.dro_player.pos < len(self.current_song.data)
+               and self.dro_player.is_playing
+               and not self.stop_request.isSet()):
+            reg, val = self.current_song.data[self.dro_player.pos]
+            if reg in (self.current_song.short_delay_code, self.current_song.long_delay_code):
+                self.dro_player.time_elapsed += val
+                self.dro_player.opl_stream.render(val)
+            else:
+                if reg & 0x80:
+                    self.dro_player.opl_stream.set_high_bank()
+                    reg &= 0x7F
                 else:
-                    if reg & 0x80:
-                        self.dro_player.opl_stream.set_high_bank()
-                        reg &= 0x7F
-                    else:
-                        self.dro_player.opl_stream.set_low_bank()
-                    self.dro_player.opl_stream.write(self.current_song.codemap[reg], val)
-                self.dro_player.pos += 1
-                if self.dro_player.pos >= len(self.current_song.data):
-                    self.dro_player.is_playing = False
-        except Exception, e:
-            self.dro_player.is_playing = False
-            raise e
+                    self.dro_player.opl_stream.set_low_bank()
+                self.dro_player.opl_stream.write(self.current_song.codemap[reg], val)
+            self.dro_player.pos += 1
+            if self.dro_player.pos >= len(self.current_song.data):
+                self.dro_player.is_playing = False
 
 def main():
     """ As a bonus, this module can be used as a standalone program to play a DRO song!
