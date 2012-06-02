@@ -23,14 +23,11 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-import ConfigParser
 import threading
-import os.path
-import sys
 import pyaudio
 import pyopl
 import dro_data
-from dro_util import DROTrimmerException
+from dro_util import DROTrimmerException, read_config
 
 def stopPlayerOnException(func):
     def inner_func(self, *args, **kwds):
@@ -98,13 +95,7 @@ class DROPlayer(object):
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
         try:
-            config = ConfigParser.SafeConfigParser()
-            # Mitigate issue #4 by always searching for a config file in the same
-            #  path as the executable.
-            exe_path = os.path.split(sys.argv[0])[0]
-            config_files_parsed = config.read(['drotrim.ini', os.path.join(exe_path, 'drotrim.ini')])
-            if not len(config_files_parsed):
-                raise DROTrimmerException("Could not read drotrim.ini, using default audio options.")
+            config = read_config()
             self.frequency = config.getint("audio", "frequency")
             self.buffer_size = config.getint("audio", "buffer_size")
             self.bit_depth = config.getint("audio", "bit_depth")

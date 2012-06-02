@@ -84,11 +84,11 @@ def main():
     args = sys.argv
     if len(args) < 2 or len(args) > 3:
         print "Please pass the name of the file you want to convert, and optionally the output file name."
-        sys.exit(1)
+        return 1
     input_file_name = args[1]
     if not os.path.isfile(input_file_name):
         print "File not found, or is not a file: %s" % input_file_name
-        sys.exit(2)
+        return 2
     if len(args) == 3:
         output_file_name = args[2]
     else:
@@ -97,17 +97,18 @@ def main():
     if os.path.isfile(output_file_name):
         print ("Output file already exists, please delete it or rename it, or specify a different output file name: %s"
             % output_file_name)
-        sys.exit(3)
+        return 3
 
     try:
+        print "Converting V2 file %s to V1 file %s..." % (input_file_name, output_file_name)
         with file(input_file_name, 'rb') as input_file:
             with file(output_file_name, 'wb') as output_file:
                 convertDRO2to1(input_file, output_file)
 
         print "Done!"
-        sys.exit(0)
+        return 0
     except Exception, e:
         print e
-        sys.exit(4)
+        return 4
 
-if __name__ == "__main__": main()
+if __name__ == "__main__": sys.exit(main())

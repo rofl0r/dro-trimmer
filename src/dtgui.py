@@ -37,7 +37,7 @@ try:
     import dro_player
 except ImportError:
     dro_player = None
-
+import dro_util
 
 gVERSION = "v3 r7"
 gGUIIDS = {}
@@ -394,10 +394,12 @@ class DTMainFrame(wx.Frame):
     def __init__(self, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         self.parent = kwds['dtparent']
+        tail_length = kwds['tail_length']
         del kwds['dtparent']
+        del kwds['tail_length']
         wx.Frame.__init__(self, *args, **kwds)
 
-        # set window icon (for Windows only)
+        # set window icon (for Windows binaries only)
         if win32api is not None:
             exeName = win32api.GetModuleFileName(win32api.GetModuleHandle(None))
             icon = wx.Icon(exeName, wx.BITMAP_TYPE_ICO)
@@ -411,7 +413,13 @@ class DTMainFrame(wx.Frame):
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
         self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
         self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
-        self.button_play_tail = wx.Button(self.panel_1, guiID("BUTTON_PLAY_TAIL"), "Play last 3 seconds")
+        tail_in_seconds = tail_length / 1000.0
+        if tail_in_seconds % 1:
+            tail_str = "%.2f" % (tail_in_seconds,)
+        else:
+            tail_str = "%d" % (tail_in_seconds,)
+        self.button_play_tail = wx.Button(self.panel_1, guiID("BUTTON_PLAY_TAIL"),
+            "Play last %s second%s" % (tail_str, 's' if tail_in_seconds != 1 else ''))
         
         self.__set_properties()
         self.__do_layout()
@@ -458,15 +466,21 @@ class DTApp(wx.App):
             self.dro_player = dro_player.DROPlayer()
         else:
             self.dro_player = None
-        
-        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer", size=wx.Size(640, 480), dtparent=self)
+
+        try:
+            config = dro_util.read_config()
+            self.tail_length = config.getint("ui", "tail_length")
+        except Exception, e:
+            print "Could not read tail length from drotrim.ini, using default value."
+            self.tail_length = 3000
+        self.frdialog = None # Find Register dialog
+
+        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer", size=wx.Size(640, 480),
+            dtparent=self, tail_length=self.tail_length)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
         
         self._RegisterEventHandlers()
-
-        self.tail_length = 3000
-        self.frdialog = None # Find Register dialog
         
         return True
     

@@ -23,7 +23,12 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import ConfigParser
+import os.path
+import sys
 import struct
+
+__config = None
 
 class DROTrimmerException(Exception):
     pass
@@ -31,12 +36,22 @@ class DROTrimmerException(Exception):
 class DROFileException(DROTrimmerException):
     pass
 
+def read_config():
+    global __config
+    if __config is None:
+        __config = ConfigParser.SafeConfigParser()
+        # Mitigate issue #4 by always searching for a config file in the same
+        #  path as the executable.
+        exe_path = os.path.split(sys.argv[0])[0]
+        config_files_parsed = __config.read(['drotrim.ini', os.path.join(exe_path, 'drotrim.ini')])
+        if not len(config_files_parsed):
+            raise DROTrimmerException("Could not read drotrim.ini.")
+    return __config
 
 def warning(text):
     """ Accepts a string, prints string prefixed with "WARNING! - " """
     # maybe TODO: GUI message queue?
     print "WARNING! - " + text
-
 
 def write_char(in_f, val):
     in_f.write(struct.pack("<B", val))

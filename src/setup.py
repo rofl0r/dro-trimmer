@@ -51,7 +51,10 @@ setup(version = "3.7.0",
       console = [
         {
             "script": "dro_player.py"
-        }
+        },
+        {
+            "script": "dro2to1.py"
+        },
       ],
       options=opts
 )
