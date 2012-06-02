@@ -25,6 +25,8 @@
 
 import ConfigParser
 import threading
+import os.path
+import sys
 import pyaudio
 import pyopl
 import dro_data
@@ -68,7 +70,7 @@ class OPLStream(object):
             # Could be re-written as "register |= self.bank << 2"
         self.opl.writeReg(register, value)
 
-    def render_new(self, length_ms):
+    def render(self, length_ms):
         # Taken from PyOPL 1.0 and 1.2. Accurate rendering, though a bit inefficient.
         samples_to_render = length_ms * self.frequency / 1000
         while samples_to_render > 0 and not self.stop_requested:
@@ -82,18 +84,6 @@ class OPLStream(object):
                 samples_to_render -= self.buffer_size
             self.opl.getSamples(tmp_buffer)
             self.audio_stream.write(buffer(tmp_audio_buffer))
-
-    def render_old(self, length_ms):
-        # Taken from the PyOPL 1.1 demo.py. Slightly inaccurate as
-        #  long as you render around 44/48khz. Lower resolutions
-        #  will have more obvious problems, try 8000 for example.
-        self.samples_to_render += length_ms * self.frequency / 1000
-        while self.samples_to_render > self.buffer_size:
-            self.opl.getSamples(self.buffer)
-            self.audio_stream.write(self.pyaudio_buffer)
-            self.samples_to_render -= self.buffer_size
-
-    render = render_new
 
     def set_high_bank(self):
         self.bank = 1
@@ -109,18 +99,20 @@ class DROPlayer(object):
         #  (similar to DOSBox's mixer vs opl settings)
         try:
             config = ConfigParser.SafeConfigParser()
-            config_files_parsed = config.read(['drotrim.ini'])
+            # Mitigate issue #4 by always searching for a config file in the same
+            #  path as the executable.
+            exe_path = os.path.split(sys.argv[0])[0]
+            config_files_parsed = config.read(['drotrim.ini', os.path.join(exe_path, 'drotrim.ini')])
             if not len(config_files_parsed):
                 raise DROTrimmerException("Could not read drotrim.ini, using default audio options.")
             self.frequency = config.getint("audio", "frequency")
-            #self.buffer_size = config.getint("audio", "buffer_size")
+            self.buffer_size = config.getint("audio", "buffer_size")
             self.bit_depth = config.getint("audio", "bit_depth")
         except Exception, e:
             print "Could not read audio settings from drotrim.ini, using default values. (Error: %s)" % e
             self.frequency = 48000
-            #self.buffer_size = 512
+            self.buffer_size = 512
             self.bit_depth = 16
-        self.buffer_size = 512
         self.channels = 2
         audio = pyaudio.PyAudio()
         self.audio_stream = audio.open(
