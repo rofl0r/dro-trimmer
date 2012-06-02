@@ -366,7 +366,7 @@ class DTMainMenuBar(wx.MenuBar):
         self.Append(self.menuFile, "File")
 
         self.menuEdit = wx.Menu()
-        self.menuEdit.Append(guiID("MENU_FINDREG"), "Find Register", "Find the next occurance of a register.", wx.ITEM_NORMAL)
+        self.menuEdit.Append(guiID("MENU_FINDREG"), "Find Register", "Find the next occurrence of a register.", wx.ITEM_NORMAL)
         self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO Info", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
         self.menuEdit.Append(guiID("MENU_DELETE"), "Delete", "Deletes the currently selected instruction.", wx.ITEM_NORMAL)
@@ -666,13 +666,13 @@ class DTApp(wx.App):
             start = self.mainframe.dtlist.GetLastSelected() + 1
         i = self.drosong.find_next_instruction(start, rToFind)
         if i == -1:
-            self.mainframe.statusbar.SetStatusText("Could not find another occurance of " + rToFind + ".")
+            self.mainframe.statusbar.SetStatusText("Could not find another occurrence of " + rToFind + ".")
             return
         self.mainframe.dtlist.Deselect()
         self.mainframe.dtlist.SelectItemManual(i)
         self.mainframe.dtlist.EnsureVisible(i)
         self.mainframe.dtlist.RefreshViewableItems()
-        self.mainframe.statusbar.SetStatusText("Occurance of " + rToFind + " found on line " + str(i) + ".")
+        self.mainframe.statusbar.SetStatusText("Occurrence of " + rToFind + " found at position " + str(i) + ".")
 
     # ____________________
     # Start Misc Event Handlers

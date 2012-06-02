@@ -56,7 +56,7 @@ class DROSong(object):
     def find_next_instruction(self, start, inst):
         """ Takes a starting index and register number (as a hex string) or
         a special value of "D-08", "D-18" or "BANK", and finds the next
-        occurance of that register after the given index. Returns the index."""
+        occurrence of that register after the given index. Returns the index."""
 
         # This is nuts. Change the comparison test depending on what we're
         #  looking for.
@@ -185,7 +185,7 @@ class DROSongV2(DROSong):
     def find_next_instruction(self, start, s_inst):
         """ Takes a starting index and register number (as a hex string) or
         a special value of "DLYS" or "DLYL", and finds the next
-        occurance of that register after the given index. Returns the index."""
+        occurrence of that register after the given index. Returns the index."""
 
         i = start
         if s_inst == "DLYS":
