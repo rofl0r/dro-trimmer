@@ -489,6 +489,7 @@ class DTApp(wx.App):
         wx.EVT_CLOSE(self.mainframe, self.closeFrame)
 
         wx.EVT_KEY_DOWN(self, self.keyListener)
+        wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListenerForList)
         
     # ____________________
     # Start Menu Event Handlers
@@ -675,11 +676,16 @@ class DTApp(wx.App):
 
     # ____________________
     # Start Misc Event Handlers
-    def keyListener(self, event):
+    def keyListenerForList(self, event):
         keycode = event.GetKeyCode()
         if keycode in (wx.WXK_DELETE, wx.WXK_BACK): # delete or backspace
             self.buttonDelete(None)
-        elif keycode == 70 and event.CmdDown(): # CTRL-F
+        else:
+            event.Skip()
+
+    def keyListener(self, event):
+        keycode = event.GetKeyCode()
+        if keycode == 70 and event.CmdDown(): # CTRL-F
             self.menuFindReg(event)
         elif keycode == 73 and event.CmdDown(): # CTRL-I
             self.menuDROInfo(event)
