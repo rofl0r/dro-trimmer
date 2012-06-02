@@ -30,7 +30,6 @@
 # 3.0.0 Started 20 April 2012. (MIT license)
 #
 # Notes:
-#  - analysis is kind of dumb and useless (especially "least used registers")
 #  - the GUI doesn't resize properly
 
 
