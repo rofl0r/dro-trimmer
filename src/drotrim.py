@@ -28,10 +28,6 @@
 # 0.1.0 Started October 2006, released 12 June 2007 (public domain)
 # 0.2.0 Started 23 August 2008, released 26 December 2008 (LGPL)
 # 3.0.0 Started 20 April 2012. (MIT license)
-#
-# Notes:
-#  - the GUI doesn't resize properly
-
 
 import dtgui
 

@@ -220,10 +220,12 @@ class DTDialogFindReg(wx.Dialog):
         
         self.lRegister = wx.StaticText(self, -1, "Instruction:")
         self.cbRegisters = wx.ComboBox(self, -1, choices=self.regchoices, style=wx.CB_DROPDOWN|wx.CB_DROPDOWN|wx.CB_READONLY)
-        self.bOk = wx.Button(self, guiID("BUTTON_FINDREG"), "Find Next")
+        self.bFindNext = wx.Button(self, guiID("BUTTON_FINDREG"), "Find Next")
+        self.bFindPrevious = wx.Button(self, guiID("BUTTON_FINDREGPREV"), "Find Previous")
         self.bCancel = wx.Button(self, wx.ID_CANCEL, "Close")
         
         wx.EVT_BUTTON(self, guiID("BUTTON_FINDREG"), self.parent.parent.buttonFindReg) # gross
+        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREGPREV"), self.parent.parent.buttonFindRegPrevious) # gross
 
         self.__set_properties()
         self.__do_layout()
@@ -236,14 +238,18 @@ class DTDialogFindReg(wx.Dialog):
         # end wxGlade
 
     def __do_layout(self):
+        # Alignment adjustments by Wraithverge
         # begin wxGlade: DTDialogFindReg.__do_layout
         sMain = wx.BoxSizer(wx.VERTICAL)
+        sMiddle = wx.BoxSizer(wx.HORIZONTAL)
         sBottom = wx.BoxSizer(wx.HORIZONTAL)
-        gsTop = wx.FlexGridSizer(1, 2, 0, 0)
-        gsTop.Add(self.lRegister, 0, 0, 0)
+        gsTop = wx.FlexGridSizer(1, 2, 0, 5)
+        gsTop.Add(self.lRegister, 0, wx.ALIGN_CENTER, 0)
         gsTop.Add(self.cbRegisters, 0, 0, 0)
-        sMain.Add(gsTop, 1, wx.EXPAND, 0)
-        sBottom.Add(self.bOk, 0, 0, 0)
+        sMain.Add(gsTop, 0, wx.ALL|wx.ALIGN_CENTER, 2)
+        sMiddle.Add(self.bFindPrevious, 0, 0, 0)
+        sMiddle.Add(self.bFindNext, 0, 0, 0)
+        sMain.Add(sMiddle, 0, wx.ALL|wx.ALIGN_RIGHT, 5)
         sBottom.Add(self.bCancel, 0, wx.LEFT, 10)
         sMain.Add(sBottom, 0, wx.ALL|wx.ALIGN_RIGHT, 5)
         self.SetSizer(sMain)
@@ -671,14 +677,14 @@ class DTApp(wx.App):
             self.dro_player.play()
 
     @catchUnhandledExceptions
-    def buttonFindReg(self, event):
+    def buttonFindReg(self, event, look_backwards=False):
         rToFind = self.frdialog.cbRegisters.GetValue()
         if rToFind == '': return
         if not self.mainframe.dtlist.HasSelected():
             start = 0
         else:
             start = self.mainframe.dtlist.GetLastSelected() + 1
-        i = self.drosong.find_next_instruction(start, rToFind)
+        i = self.drosong.find_next_instruction(start, rToFind, look_backwards=look_backwards)
         if i == -1:
             self.mainframe.statusbar.SetStatusText("Could not find another occurrence of " + rToFind + ".")
             return
@@ -687,6 +693,9 @@ class DTApp(wx.App):
         self.mainframe.dtlist.EnsureVisible(i)
         self.mainframe.dtlist.RefreshViewableItems()
         self.mainframe.statusbar.SetStatusText("Occurrence of " + rToFind + " found at position " + str(i) + ".")
+
+    def buttonFindRegPrevious(self, event):
+        self.buttonFindReg(event, look_backwards=True) # blech
 
     # ____________________
     # Start Misc Event Handlers

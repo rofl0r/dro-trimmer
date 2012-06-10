@@ -53,7 +53,7 @@ class DROSong(object):
     def getLengthData(self):
         return len(self.data)
 
-    def find_next_instruction(self, start, inst):
+    def find_next_instruction(self, start, inst, look_backwards=False):
         """ Takes a starting index and register number (as a hex string) or
         a special value of "D-08", "D-18" or "BANK", and finds the next
         occurrence of that register after the given index. Returns the index."""
@@ -76,20 +76,17 @@ class DROSong(object):
             ct = lambda d, inst: d[0] == inst
             inst = int(inst, 16)
 
-        # Below could (and probably should) be changed to one of the following.
-        # It will require remembering the last value we looked for, as well as
-        #  the iterator.
-        #matching_tuples = (mylist[i] for i in range(current_index, len(mylist)) if mylist[i][0] == 0x70)
-        # or
-        #index_to_search_from = 2
-        #sliced = itertools.islice(iter(mylist), index_to_search_from, None)
-        #matching_tuples = (a for a in sliced if a[0] == 0x70)
-        #matching_tuples.next()
-
-        while i < len(self.data):
-            if ct(self.data[i], inst):
-                return i
-            i += 1
+        if look_backwards:
+            i -= 2 # so we don't get stuck on the currently selected instruction
+            while i >= 0:
+                if ct(self.data[i], inst):
+                    return i
+                i -= 1
+        else:
+            while i < len(self.data):
+                if ct(self.data[i], inst):
+                    return i
+                i += 1
 
         return -1
 
@@ -182,7 +179,7 @@ class DROSongV2(DROSong):
         self.short_delay_code = short_delay_code
         self.long_delay_code = long_delay_code
 
-    def find_next_instruction(self, start, s_inst):
+    def find_next_instruction(self, start, s_inst, look_backwards=False):
         """ Takes a starting index and register number (as a hex string) or
         a special value of "DLYS" or "DLYL", and finds the next
         occurrence of that register after the given index. Returns the index."""
@@ -204,10 +201,17 @@ class DROSongV2(DROSong):
             ct = search_func
             s_inst = int(s_inst, 16)
 
-        while i < len(self.data):
-            if ct(self.data[i], s_inst):
-                return i
-            i += 1
+        if look_backwards:
+            i -= 2 # so we don't get stuck on the currently selected instruction
+            while i >= 0:
+                if ct(self.data[i], s_inst):
+                    return i
+                i -= 1
+        else:
+            while i < len(self.data):
+                if ct(self.data[i], s_inst):
+                    return i
+                i += 1
 
         return -1
 
