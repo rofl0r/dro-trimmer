@@ -39,7 +39,7 @@ except ImportError:
     dro_player = None
 import dro_util
 
-gVERSION = "v3 r7"
+gVERSION = "v3 r8"
 gGUIIDS = {}
 
 def errorAlert(parent, msg, title="Error"):
