@@ -37,7 +37,9 @@ try:
     import dro_player
 except ImportError:
     dro_player = None
+import dro_undo
 import dro_util
+
 
 gVERSION = "v3 r8"
 gGUIIDS = {}
@@ -529,7 +531,7 @@ class DTApp(wx.App):
             first_delay_analyzer = dro_data.DROFirstDelayAnalyzer()
             first_delay_analyzer.analyze_dro(self.drosong)
             if first_delay_analyzer.result:
-                self.drosong.delete_instruction(0)
+                self.drosong.delete_instructions([0])
                 auto_trimmed = True
             else:
                 auto_trimmed = False
@@ -566,6 +568,8 @@ class DTApp(wx.App):
                             'DRO timing mismatch',
                             style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
+            # Reset undo history when a new file is opened.
+            dro_undo.g_undo_controller.reset()
 
     @catchUnhandledExceptions
     @requiresDROLoaded
@@ -604,6 +608,22 @@ class DTApp(wx.App):
         dro_info_dialog = DROInfoDialog(self.mainframe, self.drosong)
         dro_info_dialog.ShowModal()
         dro_info_dialog.Destroy()
+
+    @catchUnhandledExceptions
+    @requiresDROLoaded
+    def menuUndo(self, event):
+        dro_undo.g_undo_controller.undo()
+        # TODO: better reporting of undo success/failure.
+        self.mainframe.statusbar.SetStatusText("Undone.")
+        self.mainframe.dtlist.RefreshViewableItems()
+
+    @catchUnhandledExceptions
+    @requiresDROLoaded
+    def menuRedo(self, event):
+        dro_undo.g_undo_controller.redo()
+        # TODO: better reporting of redo success/failure.
+        self.mainframe.statusbar.SetStatusText("Redone.")
+        self.mainframe.dtlist.RefreshViewableItems()
 
     def menuHelp(self, event):
         hd = wx.MessageDialog(self.mainframe,
@@ -720,6 +740,10 @@ class DTApp(wx.App):
             self.menuOpenDRO(event)
         elif keycode == 72 and event.CmdDown(): # CTRL-H
             self.menuHelp(event)
+        elif keycode == 89 and event.CmdDown(): # CTRL-Y
+            self.menuRedo(event)
+        elif keycode == 90 and event.CmdDown(): # CTRL-Z
+            self.menuUndo(event)
         elif keycode == 32:
             self.togglePlayback(event)
         else:

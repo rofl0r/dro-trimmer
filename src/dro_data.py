@@ -24,6 +24,7 @@
 #    THE SOFTWARE.
 
 import difflib
+import dro_undo
 import regdata
 
 DRO_FILE_V1 = 1
@@ -90,23 +91,34 @@ class DROSong(object):
 
         return -1
 
-    def delete_instruction(self, i):
-        """ Deletes instruction at given index."""
-        reg_and_val = self.data[i]
-        # Update total delay count if removing a delay
-        if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
-            self.ms_length -= reg_and_val[1]
-        self.data = self.data[:i] + self.data[i + 1:]
+    def __insert_instructions(self, index_and_value_list):
+        """ Currently just an internal method, used for undoing deletions.
 
+        Note to self: if this gets exposed to outside calls, make it
+        "undoable" too.
+        """
+        for i, reg_and_val in index_and_value_list:
+            self.data.insert(i, reg_and_val) # inefficient but I'm mega-lazy.
+            if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
+                self.ms_length += reg_and_val[1]
+
+    @dro_undo.undoable(dro_undo.g_undo_controller, __insert_instructions)
     def delete_instructions(self, index_list):
+        """ Deletes instructions at the given indexes.
+
+        Returns a list of tuples, containing the index deleted and the value
+        that was stored at that index."""
+        deleted_data = []
         new_data = []
         for i, reg_and_val in enumerate(self.data):
             if i in index_list:
+                deleted_data.append((i, reg_and_val))
                 if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
                     self.ms_length -= reg_and_val[1]
             else:
                 new_data.append(reg_and_val)
         self.data = new_data
+        return deleted_data
 
     def get_register_display(self, item):
         instr = self.data[item]
