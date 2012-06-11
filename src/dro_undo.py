@@ -94,9 +94,18 @@ class UndoController(object):
         self.buffer = []
         self.position = -1
 
+    def is_buffer_empty(self):
+        return len(self.buffer) == 0
+
+    def has_something_to_undo(self):
+        return not self.is_buffer_empty() and self.position != -1
+
+    def has_something_to_redo(self):
+        return not self.is_buffer_empty() and self.position < len(self.buffer) - 1
+
     def append(self, value):
         # If we've already tried undoing, truncate the list
-        if len(self.buffer) - 1 != self.position:
+        if self.has_something_to_redo():
             del self.buffer[self.position:]
         self.buffer.append(value)
         self.position += 1
@@ -105,23 +114,34 @@ class UndoController(object):
         """ Perform an undo action, using the entry in the undo buffer
         pointed to from the current position.
 
+        Returns True if an undo was performed, otherwise returns False.
+
         If there have been no previous calls to "undo", the current
         position will be the last entry in the buffer.
         If buffer is emtpy, will do nothing.
         """
-        if len(self.buffer) and self.position != -1: # silently ignore calls if nothing to undo.
+        if self.has_something_to_undo(): # silently ignore calls if nothing to undo.
             memo = self.buffer[self.position]
             self.bypass = True # If the "undo" function is also "undoable", we don't want to keep track of that undo.
             memo.undo()
             self.bypass = False
             self.position -= 1
+            return True
+        return False
 
     def redo(self):
-        if len(self.buffer) and self.position < len(self.buffer) - 1:  # silently ignore calls if nothing to redo.
+        """
+        Returns True if a redo was performed, otherwise returns False.
+        """
+        if self.has_something_to_redo():  # silently ignore calls if nothing to redo.
             memo = self.buffer[self.position]
             self.bypass = True # If the "redo" function is also "undoable", we don't want to keep track of that undo.
             memo.redo()
             self.bypass = False
             self.position += 1
+            return True
+        return False
+
+
 
 g_undo_controller = UndoController()

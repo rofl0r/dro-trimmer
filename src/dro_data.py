@@ -56,15 +56,15 @@ class DROSong(object):
 
     def find_next_instruction(self, start, inst, look_backwards=False):
         """ Takes a starting index and register number (as a hex string) or
-        a special value of "D-08", "D-18" or "BANK", and finds the next
+        a special value of "DLYS", "DLYL" or "BANK", and finds the next
         occurrence of that register after the given index. Returns the index."""
 
         # This is nuts. Change the comparison test depending on what we're
         #  looking for.
         i = start
-        if inst == "D-08":
+        if inst == "DLYS":
             ct = lambda d, inst: d[0] == self.short_delay_code
-        elif inst == "D-16":
+        elif inst == "DLYL":
             ct = lambda d, inst: d[0] == self.long_delay_code
         elif inst == "DALL":
             ct = lambda d, inst: d[0] in (self.short_delay_code, self.long_delay_code)

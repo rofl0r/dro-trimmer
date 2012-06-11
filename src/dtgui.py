@@ -218,7 +218,7 @@ class DTDialogFindReg(wx.Dialog):
             # Currently looks up the real register value (note the codemap index), and ignores banks.
             self.regchoices = ["DLYS", "DLYL", "DALL"] + [('0x%02X' % rk) for rk in range(0x100)]
         else:
-            self.regchoices = ["D-08", "D-16", "DALL", "BANK"] + [('0x%02X' % rk) for rk in range(0x100)]
+            self.regchoices = ["DLYS", "DLYL", "DALL", "BANK"] + [('0x%02X' % rk) for rk in range(0x100)]
         
         self.lRegister = wx.StaticText(self, -1, "Instruction:")
         self.cbRegisters = wx.ComboBox(self, -1, choices=self.regchoices, style=wx.CB_DROPDOWN|wx.CB_DROPDOWN|wx.CB_READONLY)
@@ -374,6 +374,9 @@ class DTMainMenuBar(wx.MenuBar):
         self.Append(self.menuFile, "File")
 
         self.menuEdit = wx.Menu()
+        self.undoMenuItem = self.menuEdit.Append(guiID("MENU_UNDO"), "Undo", "Undoes the last change you made to the data.", wx.ITEM_NORMAL)
+        self.redoMenuItem = self.menuEdit.Append(guiID("MENU_REDO"), "Redo", "Redoes the previously undone change you made to the data.", wx.ITEM_NORMAL)
+        self.menuEdit.AppendSeparator()
         self.menuEdit.Append(guiID("MENU_FINDREG"), "Find Register", "Find the next occurrence of a register.", wx.ITEM_NORMAL)
         self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO Info", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
@@ -392,11 +395,23 @@ class DTMainMenuBar(wx.MenuBar):
         self.__do_layout()
 
     def __set_properties(self):
-        pass
+        self.undoMenuItem.Enable(False)
+        self.redoMenuItem.Enable(False)
 
     def __do_layout(self):
         pass
 
+    def updateUndoRedoMenuItems(self):
+        # Check if there's anything left to undo
+        if dro_undo.g_undo_controller.has_something_to_undo():
+            self.undoMenuItem.Enable(True)
+        else:
+            self.undoMenuItem.Enable(False)
+        # Check if there's anything left to undo
+        if dro_undo.g_undo_controller.has_something_to_redo():
+            self.redoMenuItem.Enable(True)
+        else:
+            self.redoMenuItem.Enable(False)
 
 class DTMainFrame(wx.Frame):
     def __init__(self, *args, **kwds):
@@ -497,6 +512,8 @@ class DTApp(wx.App):
         wx.EVT_MENU(self.mainframe, guiID("MENU_SAVEDRO"), self.menuSaveDRO)
         wx.EVT_MENU(self.mainframe, guiID("MENU_SAVEDROAS"), self.menuSaveDROAs)
         wx.EVT_MENU(self.mainframe, wx.ID_EXIT, self.menuExit)
+        wx.EVT_MENU(self.mainframe, guiID("MENU_UNDO"), self.menuUndo)
+        wx.EVT_MENU(self.mainframe, guiID("MENU_REDO"), self.menuRedo)
         wx.EVT_MENU(self.mainframe, guiID("MENU_FINDREG"), self.menuFindReg)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DELETE"), self.menuDelete)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DROINFO"), self.menuDROInfo)
@@ -570,6 +587,7 @@ class DTApp(wx.App):
                 md.ShowModal()
             # Reset undo history when a new file is opened.
             dro_undo.g_undo_controller.reset()
+            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
 
     @catchUnhandledExceptions
     @requiresDROLoaded
@@ -612,18 +630,24 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuUndo(self, event):
-        dro_undo.g_undo_controller.undo()
-        # TODO: better reporting of undo success/failure.
-        self.mainframe.statusbar.SetStatusText("Undone.")
-        self.mainframe.dtlist.RefreshViewableItems()
+        was_undone = dro_undo.g_undo_controller.undo()
+        if was_undone:
+            self.mainframe.statusbar.SetStatusText("Undone.")
+            self.mainframe.dtlist.RefreshViewableItems()
+            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+        else:
+            self.mainframe.statusbar.SetStatusText("Nothing to undo.")
 
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuRedo(self, event):
-        dro_undo.g_undo_controller.redo()
-        # TODO: better reporting of redo success/failure.
-        self.mainframe.statusbar.SetStatusText("Redone.")
-        self.mainframe.dtlist.RefreshViewableItems()
+        was_redone = dro_undo.g_undo_controller.redo()
+        if was_redone:
+            self.mainframe.statusbar.SetStatusText("Redone.")
+            self.mainframe.dtlist.RefreshViewableItems()
+            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+        else:
+            self.mainframe.statusbar.SetStatusText("Nothing to redo.")
 
     def menuHelp(self, event):
         hd = wx.MessageDialog(self.mainframe,
@@ -672,6 +696,11 @@ class DTApp(wx.App):
             self.mainframe.dtlist.Deselect()
             if first_item < self.mainframe.dtlist.GetItemCount():
                 self.mainframe.dtlist.SelectItemManual(first_item)
+            # Keep track of Undo buffer.
+            # (Crap, requires knowledge that this is an "undoable" action.
+            # Might be better to investigate triggering an event, or using
+            # observer/listener pattern.)
+            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
 
     @requiresDROLoaded
     def buttonPlay(self, event):
@@ -730,16 +759,16 @@ class DTApp(wx.App):
         keycode = event.GetKeyCode()
         if keycode == 70 and event.CmdDown(): # CTRL-F
             self.menuFindReg(event)
+        elif keycode == 72 and event.CmdDown(): # CTRL-H
+            self.menuHelp(event)
         elif keycode == 73 and event.CmdDown(): # CTRL-I
             self.menuDROInfo(event)
+        elif keycode == 79 and event.CmdDown(): # CTRL-O
+            self.menuOpenDRO(event)
         elif keycode == 83 and event.ShiftDown() and event.CmdDown(): # CTRL-SHIFT-S
             self.menuSaveDROAs(event)
         elif keycode == 83 and event.CmdDown(): # CTRL-S
             self.menuSaveDRO(event)
-        elif keycode == 79 and event.CmdDown(): # CTRL-O
-            self.menuOpenDRO(event)
-        elif keycode == 72 and event.CmdDown(): # CTRL-H
-            self.menuHelp(event)
         elif keycode == 89 and event.CmdDown(): # CTRL-Y
             self.menuRedo(event)
         elif keycode == 90 and event.CmdDown(): # CTRL-Z
