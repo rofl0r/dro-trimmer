@@ -246,7 +246,7 @@ class DTDialogFindReg(wx.Dialog):
         sMiddle = wx.BoxSizer(wx.HORIZONTAL)
         sBottom = wx.BoxSizer(wx.HORIZONTAL)
         gsTop = wx.FlexGridSizer(1, 2, 0, 5)
-        gsTop.Add(self.lRegister, 0, wx.ALIGN_CENTER, 0)
+        gsTop.Add(self.lRegister, 1, wx.ALIGN_CENTER, 0)
         gsTop.Add(self.cbRegisters, 0, 0, 0)
         sMain.Add(gsTop, 0, wx.ALL|wx.ALIGN_CENTER, 2)
         sMiddle.Add(self.bFindPrevious, 0, 0, 0)
