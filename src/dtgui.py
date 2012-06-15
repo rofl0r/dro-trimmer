@@ -345,7 +345,7 @@ class DROInfoDialog ( wx.Dialog ):
         # Probably should move this to the App class
         try:
             opl_type = self.cHardwareType.GetSelection()
-            assert 0 < opl_type < len(self.dro_song.OPL_TYPE_MAP)
+            assert 0 <= opl_type < len(self.dro_song.OPL_TYPE_MAP)
             ms_length = int(self.tcLengthMs.GetValue())
         except Exception, e:
             errorAlert(self, "Error updating DRO info, check that the entered values are correct.")
