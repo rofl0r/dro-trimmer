@@ -265,6 +265,7 @@ class DTDialogFindReg(wx.Dialog):
 class DROInfoDialog ( wx.Dialog ):
     def __init__(self, parent, dro_song, *args, **kwds):
         # begin wxGlade: MyDialog.__init__
+        self.parent = parent
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
         wx.Dialog.__init__(self, parent, *args, **kwds)
         self.lDROVersion = wx.StaticText(self, -1, "DRO Version")
@@ -350,14 +351,14 @@ class DROInfoDialog ( wx.Dialog ):
         except Exception, e:
             errorAlert(self, "Error updating DRO info, check that the entered values are correct.")
             return
-        self.dro_song.opl_type = opl_type
-        self.dro_song.ms_length = ms_length
+        self.parent.parent.UpdateDROInfo(opl_type, ms_length) # "parent.parent" stuff is crap. TODO: make a proper app controller.
         md = wx.MessageDialog(self,
             "DRO info updated.\n"
             "Remember to save the file.",
             style=wx.OK|wx.ICON_INFORMATION)
         md.ShowModal()
         md.Destroy()
+
 
 
 class DTMainMenuBar(wx.MenuBar):
@@ -792,6 +793,19 @@ class DTApp(wx.App):
             else:
                 self.buttonPlay(event)
 
+    # Other stuff
+    def __UpdateDROInfoRedo(self, args_list): # sigh
+        self.UpdateDROInfo(*args_list)
+
+    #@requiresDROLoaded # not really required here
+    @dro_undo.undoable("DRO Header Changes", dro_undo.g_undo_controller, __UpdateDROInfoRedo)
+    def UpdateDROInfo(self, opl_type, ms_length):
+        original_values = [self.drosong.opl_type, self.drosong.ms_length]
+        self.drosong.opl_type = opl_type
+        self.drosong.ms_length = ms_length
+        return original_values
+
+    
 def run():
     app = None
     
