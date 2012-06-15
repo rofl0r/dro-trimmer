@@ -630,9 +630,9 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuUndo(self, event):
-        was_undone = dro_undo.g_undo_controller.undo()
-        if was_undone:
-            self.mainframe.statusbar.SetStatusText("Undone.")
+        undo_desc = dro_undo.g_undo_controller.undo()
+        if undo_desc:
+            self.mainframe.statusbar.SetStatusText("Undone: %s" % (undo_desc,))
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
         else:
@@ -641,9 +641,9 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuRedo(self, event):
-        was_redone = dro_undo.g_undo_controller.redo()
-        if was_redone:
-            self.mainframe.statusbar.SetStatusText("Redone.")
+        redo_desc = dro_undo.g_undo_controller.redo()
+        if redo_desc:
+            self.mainframe.statusbar.SetStatusText("Redone: %s" % (redo_desc,))
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
         else:

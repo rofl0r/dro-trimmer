@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 import weakref
 
-def undoable(undo_controller, undo_function):
+def undoable(description, undo_controller, undo_function):
     """ Decorator. Allows any side effects
     of the method to be undone or redone at a later stage.
 
@@ -59,7 +59,7 @@ def undoable(undo_controller, undo_function):
             bypass_undo = g_undo_controller.bypass
             if not bypass_undo:
                 g_undo_controller.append(
-                    UndoMemo(self, undo_function, undo_state, func, (args, kwds))
+                    UndoMemo(description, self, undo_function, undo_state, func, (args, kwds))
                 )
 
             return value
@@ -72,7 +72,8 @@ class StateAndReturnValue():
         self.value = value # not sure if this supports multiple values. Maybe should use *args?
 
 class UndoMemo(object):
-    def __init__(self, instance, undo_function, changed_state, redo_function, redo_args_and_kwds):
+    def __init__(self, description, instance, undo_function, changed_state, redo_function, redo_args_and_kwds):
+        self.description = description
         self.instance = weakref.proxy(instance) # don't want "undo" functionality stopping GC
         self.undo_function = undo_function
         self.changed_state = changed_state
@@ -114,7 +115,8 @@ class UndoController(object):
         """ Perform an undo action, using the entry in the undo buffer
         pointed to from the current position.
 
-        Returns True if an undo was performed, otherwise returns False.
+        Returns a string if an undo was performed, described the action
+        that was undone, otherwise returns None.
 
         If there have been no previous calls to "undo", the current
         position will be the last entry in the buffer.
@@ -126,12 +128,13 @@ class UndoController(object):
             memo.undo()
             self.bypass = False
             self.position -= 1
-            return True
-        return False
+            return memo.description
+        return None
 
     def redo(self):
         """
-        Returns True if a redo was performed, otherwise returns False.
+        Returns a string if an redo was performed, described the action
+        that was redone, otherwise returns None.
         """
         if self.has_something_to_redo():  # silently ignore calls if nothing to redo.
             memo = self.buffer[self.position]
@@ -139,9 +142,8 @@ class UndoController(object):
             memo.redo()
             self.bypass = False
             self.position += 1
-            return True
-        return False
-
+            return memo.description
+        return None
 
 
 g_undo_controller = UndoController()
