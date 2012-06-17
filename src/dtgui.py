@@ -101,7 +101,7 @@ class DTSongDataList(wx.ListCtrl):
 
     def CreateColumns(self):
         self.InsertColumn(0, "Pos.")
-        self.InsertColumn(1, "Reg")
+        self.InsertColumn(1, "Reg.")
         self.InsertColumn(2, "Value")
         self.InsertColumn(3, "Description")
         parent = self.GetParent()
@@ -198,11 +198,49 @@ class DTSongDataList(wx.ListCtrl):
         return sel_items
 
 
+class DTDialogGoto(wx.Dialog):
+    def __init__(self, parent, max_pos, *args, **kwds):
+        # begin wxGlade: DTDialogGoto.__init__
+        kwds["style"] = wx.DEFAULT_DIALOG_STYLE
+        wx.Dialog.__init__(self, parent, *args, **kwds)
+        self.scPosition = wx.SpinCtrl(self, -1, "", min=0, max=max_pos)
+        self.btnGo = wx.Button(self, guiID("BUTTON_GOTO_GO"), "Go")
+        self.btnClose = wx.Button(self, wx.ID_CANCEL, "")
+
+        self.__set_properties()
+        self.__do_layout()
+        # end wxGlade
+        self.parent = parent
+        wx.EVT_BUTTON(self, guiID("BUTTON_GOTO_GO"), self.parent.parent.buttonGoto) # "parent.parent" is gross
+
+    def __set_properties(self):
+        # begin wxGlade: DTDialogGoto.__set_properties
+        self.SetTitle("Goto Position")
+        # end wxGlade
+
+    def __do_layout(self):
+        # begin wxGlade: DTDialogGoto.__do_layout
+        szMain = wx.BoxSizer(wx.VERTICAL)
+        szButtons = wx.BoxSizer(wx.HORIZONTAL)
+        szMain.Add(self.scPosition, 0, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL, 0)
+        szButtons.Add((20, 20), 1, 0, 0)
+        szButtons.Add(self.btnGo, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM | wx.ALIGN_CENTER_HORIZONTAL, 0)
+        szButtons.Add(self.btnClose, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 0)
+        szMain.Add(szButtons, 1, wx.EXPAND, 0)
+        self.SetSizer(szMain)
+        szMain.Fit(self)
+        self.Layout()
+        # end wxGlade
+
+    def reset(self, max_pos):
+        self.scPosition.SetValue(0)
+        self.scPosition.SetRange(0, max_pos)
+
+# end of class DTDialogGoto
+
+
 class DTDialogFindReg(wx.Dialog):
     def __init__(self, *args, **kwds):
-        # TODO: allow user to search from the bottom (change DROSong search to
-        #  decrement instead of increment)
-        
         # begin wxGlade: DTDialogFindReg.__init__
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
         wx.Dialog.__init__(self, *args, **kwds)
@@ -378,7 +416,9 @@ class DTMainMenuBar(wx.MenuBar):
         self.undoMenuItem = self.menuEdit.Append(guiID("MENU_UNDO"), "Undo", "Undoes the last change you made to the data.", wx.ITEM_NORMAL)
         self.redoMenuItem = self.menuEdit.Append(guiID("MENU_REDO"), "Redo", "Redoes the previously undone change you made to the data.", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
+        self.menuEdit.Append(guiID("MENU_GOTO"), "Goto", "Goes to a specific position.", wx.ITEM_NORMAL)
         self.menuEdit.Append(guiID("MENU_FINDREG"), "Find Register", "Find the next occurrence of a register.", wx.ITEM_NORMAL)
+        self.menuEdit.Append(guiID("MENU_FINDLOOP"), "Find Loop", "Tries to find a matching section of data.", wx.ITEM_NORMAL) # Wraithverge
         self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO Info", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
         self.menuEdit.Append(guiID("MENU_DELETE"), "Delete", "Deletes the currently selected instruction.", wx.ITEM_NORMAL)
@@ -483,6 +523,7 @@ class DTMainFrame(wx.Frame):
 
 class DTApp(wx.App):
     def OnInit(self):
+        global gVERSION
         self.drosong = None
         # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
         #  still make use of the editor.
@@ -497,9 +538,10 @@ class DTApp(wx.App):
         except Exception, e:
             print "Could not read tail length from drotrim.ini, using default value."
             self.tail_length = 3000
+        self.goto_dialog = None # Goto diaog
         self.frdialog = None # Find Register dialog
 
-        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer", size=wx.Size(640, 480),
+        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer %s" % (gVERSION,), size=wx.Size(640, 480),
             dtparent=self, tail_length=self.tail_length)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
@@ -515,9 +557,11 @@ class DTApp(wx.App):
         wx.EVT_MENU(self.mainframe, wx.ID_EXIT, self.menuExit)
         wx.EVT_MENU(self.mainframe, guiID("MENU_UNDO"), self.menuUndo)
         wx.EVT_MENU(self.mainframe, guiID("MENU_REDO"), self.menuRedo)
+        wx.EVT_MENU(self.mainframe, guiID("MENU_GOTO"), self.menuGoto)
         wx.EVT_MENU(self.mainframe, guiID("MENU_FINDREG"), self.menuFindReg)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DELETE"), self.menuDelete)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DROINFO"), self.menuDROInfo)
+        wx.EVT_MENU(self.mainframe, guiID("MENU_FINDLOOP"), self.menuFindLoop)
         wx.EVT_MENU(self.mainframe, wx.ID_HELP, self.menuHelp)
         wx.EVT_MENU(self.mainframe, guiID("MENU_ABOUT"), self.menuAbout)
         
@@ -589,6 +633,9 @@ class DTApp(wx.App):
             # Reset undo history when a new file is opened.
             dro_undo.g_undo_controller.reset()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            # Reset the Goto dialog, if it exists.
+            if self.goto_dialog is not None:
+                self.goto_dialog.reset(len(self.drosong.data) - 1)
 
     @catchUnhandledExceptions
     @requiresDROLoaded
@@ -612,13 +659,28 @@ class DTApp(wx.App):
     def menuExit(self, event):
         self.mainframe.Close(False)
 
+    @catchUnhandledExceptions
+    @requiresDROLoaded
+    def menuGoto(self, event):
+        if self.goto_dialog is not None:
+            self.goto_dialog.Destroy()
+        self.goto_dialog = DTDialogGoto(self.mainframe, len(self.drosong.data) - 1)
+        self.goto_dialog.Show()
+
     @requiresDROLoaded
     def menuFindReg(self, event):
         if self.frdialog is not None:
             self.frdialog.Destroy() # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
         self.frdialog = DTDialogFindReg(self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
-    
+
+    # This section was added by Wraithverge.
+    @catchUnhandledExceptions
+    @requiresDROLoaded
+    def menuFindLoop(self, event):
+        result = dro_data.DROLoopAnalyzer().analyze_dro(self.drosong)
+        self.mainframe.statusbar.SetStatusText("Please look at the console to view the result ...")
+
     def menuDelete(self, event):
         self.buttonDelete(None)
 
@@ -634,6 +696,7 @@ class DTApp(wx.App):
         undo_desc = dro_undo.g_undo_controller.undo()
         if undo_desc:
             self.mainframe.statusbar.SetStatusText("Undone: %s" % (undo_desc,))
+            self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
         else:
@@ -645,6 +708,7 @@ class DTApp(wx.App):
         redo_desc = dro_undo.g_undo_controller.redo()
         if redo_desc:
             self.mainframe.statusbar.SetStatusText("Redone: %s" % (redo_desc,))
+            self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
         else:
@@ -727,6 +791,23 @@ class DTApp(wx.App):
             self.dro_player.play()
 
     @catchUnhandledExceptions
+    def buttonGoto(self, event):
+        position = self.goto_dialog.scPosition.GetValue()
+        try:
+            position = int(position)
+        except Exception:
+            self.mainframe.statusbar.SetStatusText("Invalid position for goto: %s" % position)
+            return
+        if position < 0 or position >= len(self.drosong.data):
+            self.mainframe.statusbar.SetStatusText("Position for goto is out of range: %s" % position)
+            return
+        self.mainframe.dtlist.Deselect()
+        self.mainframe.dtlist.SelectItemManual(position)
+        self.mainframe.dtlist.EnsureVisible(position)
+        self.mainframe.dtlist.RefreshViewableItems()
+        self.mainframe.statusbar.SetStatusText("Gone to position: %s" % position)
+
+    @catchUnhandledExceptions
     def buttonFindReg(self, event, look_backwards=False):
         rToFind = self.frdialog.cbRegisters.GetValue()
         if rToFind == '': return
@@ -760,6 +841,8 @@ class DTApp(wx.App):
         keycode = event.GetKeyCode()
         if keycode == 70 and event.CmdDown(): # CTRL-F
             self.menuFindReg(event)
+        elif keycode == 71 and event.CmdDown(): # CTRL-G
+            self.menuGoto(event)
         elif keycode == 72 and event.CmdDown(): # CTRL-H
             self.menuHelp(event)
         elif keycode == 73 and event.CmdDown(): # CTRL-I
@@ -805,7 +888,7 @@ class DTApp(wx.App):
         self.drosong.ms_length = ms_length
         return original_values
 
-    
+
 def run():
     app = None
     

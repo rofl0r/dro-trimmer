@@ -23,6 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import itertools
 import difflib
 import dro_undo
 import regdata
@@ -110,8 +111,9 @@ class DROSong(object):
         that was stored at that index."""
         deleted_data = []
         new_data = []
+        index_set = set(index_list)
         for i, reg_and_val in enumerate(self.data):
-            if i in index_list:
+            if i in index_set:
                 deleted_data.append((i, reg_and_val))
                 if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
                     self.ms_length -= reg_and_val[1]
@@ -302,7 +304,151 @@ class DROTotalDelayMismatchAnalyzer(object):
         self.result = calc_delay != dro_song.ms_length
 
 class DROLoopAnalyzer(object):
+    class Match(object):
+        def __init__(self, start=None, end=None, length=0):
+            self.start = start
+            self.end = end
+            self.length = length
+
+        def __repr__(self):
+            return "Match(start=%s, end=%s, length=%s)" % (self.start, self.end, self.length)
+
     def analyze_dro(self, dro_song):
+        # First, go through the data and only keep note on/off instructions and delays.
+        # This is because sometimes the looped information has slightly different
+        # data.
+        original_indexes = []
+        dro_data = []
+        for i, datum in enumerate(dro_song.data):
+            reg = datum[0]
+            should_include = False
+            if reg in (dro_song.short_delay_code,
+                       dro_song.long_delay_code):
+                should_include = True
+            else:
+                if dro_song.file_version == DRO_FILE_V2: # sigh
+                    reg = dro_song.codemap[reg & 0x7F]
+                if reg in range(0xB0, 0xB9):
+                    should_include = True
+            if should_include:
+                dro_data.append(datum)
+                original_indexes.append(i)
+
+        # Ignore the above, it gives poor results.
+        dro_data = dro_song.data
+        original_indexes = range(len(dro_song.data))
+
+        # From the start, compare to the last value at the end.
+        # If the current value matches the end value, compare all
+        # values preceding the current value against all values
+        # preceding the end value.
+        # (Probably a naive approach)
+        # Example:
+        #  [0, 1, 2, 3, 1, 2]
+        #   ^              ^
+        #  [0, 1, 2, 3, 1, 2]
+        #      ^           ^
+        #  [0, 1, 2, 3, 1, 2]
+        #         ^        ^
+        #  [0, 1, 2, 3, 1, 2]
+        #      \--^     \--^
+        #   result:
+        #   section 1: start = 1, end = 2, length = 2
+        #   section 2: start = 4, end = 5, length = 2
+        end_match = self.Match()
+        longest_match = self.Match()
+        end_value = dro_data[-1]
+        end_index = len(dro_data) - 1
+        for i, curr_delay in enumerate(dro_data):
+            if (curr_delay == end_value and
+                i != end_index): # only take action if this is not the end item
+                curr_match = self.Match(start=i, end=i, length=0) # length is corrected in first iteration of the loop below
+                for early_i, later_i in itertools.izip(
+                    xrange(i, 0, -1),
+                    xrange(end_index, 0, -1)
+                ):
+                    early_value = dro_data[early_i]
+                    later_value = dro_data[later_i]
+                    match_ended = False
+
+                    if early_value == later_value:
+                        curr_match.length += 1
+                        curr_match.start = early_i
+
+                        # Special case, if we've reached the start and it still matches
+                        if early_i == 0:
+                            match_ended = True
+                    else:
+                        match_ended = True
+
+                    # Sequence has ended, and it's longer than the longest match so far,
+                    #  or it's the same length as the longest match but has an earlier
+                    #  starting point.
+                    if match_ended:
+                        if (curr_match.length > longest_match.length or
+                            (curr_match.length == longest_match.length and
+                            curr_match.start < longest_match.start)):
+                            longest_match = curr_match
+                            end_match = self.Match(
+                                start=later_i + 1, # ergh, this looks wrong
+                                end=end_index,
+                                length=curr_match.length
+                            )
+                        break
+
+        print "My conclusions:"
+        if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
+            print "No loop found. I'm sorry."
+        else:
+            print dro_data[longest_match.start:longest_match.end + 1]
+            print dro_data[end_match.start:end_match.end + 1]
+            # Convert matching indexes to original indexes
+            longest_match = self.Match(
+                start=original_indexes[longest_match.start],
+                end=original_indexes[longest_match.end],
+                length=original_indexes[longest_match.end] - original_indexes[longest_match.start] + 1
+            )
+            end_match = self.Match(
+                start=original_indexes[end_match.start],
+                end=original_indexes[end_match.end],
+                length=original_indexes[end_match.end] - original_indexes[end_match.start] + 1
+            )
+            print "Loop section 1: start=%s, end=%s, length=%s." % (longest_match.start, longest_match.end, longest_match.length)
+            print "Loop section 2: start=%s, end=%s, length=%s." % (end_match.start, end_match.end, end_match.length)
+
+        self.analyze_dro_two(dro_song)
+
+    def analyze_dro_two(self, dro_song):
+        # This is the shortest length that we want to keep track of.
+        notable_threshold = 10
+
+        # Try and find sections with large chunks of instructions before a delay.
+        dro_data = dro_song.data
+        sections = []
+        curr_section = self.Match()
+        for i, datum in enumerate(dro_data):
+            reg = datum[0]
+            if reg not in (dro_song.short_delay_code,
+                       dro_song.long_delay_code):
+                if curr_section.start is None:
+                    curr_section.start = i
+                curr_section.length += 1
+            else:
+                curr_section.end = i - 1
+                if curr_section.length >= notable_threshold:
+                    sections.append(curr_section)
+                curr_section = self.Match()
+
+        # If we've got a hanging section left over, finish it off.
+        if curr_section.start is not None and curr_section.end is None:
+            curr_section.end = len(dro_data) - 1
+            if curr_section.length >= notable_threshold:
+                sections.append(curr_section)
+
+        sections.sort(key=lambda m: m.length, reverse=True)
+        print "Interesting sections: %s" % sections[:10]
+
+    def analyze_dro_poo(self, dro_song):
         dro_data = dro_song.data
         # Split the data in half and see what the largest matching block is.
         # This will give us an indication on whether or not the song loops, and if so,
@@ -312,12 +458,14 @@ class DROLoopAnalyzer(object):
         tmp_a = dro_data[:tmp_len]
         tmp_b = dro_data[tmp_len:]
         sm.set_seqs(tmp_a, tmp_b)
+        #result1 = sm.get_matching_blocks()
+        #print result1
 
         # We have to do "len(dro_data) - tmp_len" because of rounding when
         #  dividing by two earlier.
         result = sm.find_longest_match(0, tmp_len, 0, len(dro_data) - tmp_len)
-        print("Result of analysis: longest block = " + str(result[2]) +\
-              ", start first half = " + str(result[0]) +\
+        print("Result of analysis: longest block = " + str(result[2]) +
+              ", start first half = " + str(result[0]) +
               ", start second half = " + str(result[1] + tmp_len))
 
         # TODO: Find the first instance of the data block dro_data[result[0]:result[1] + tmp_len]?
@@ -331,7 +479,7 @@ class DROLoopAnalyzer(object):
 
         # If first instruction is note off, alert user
         if dro_data[result[0]][0] in range(0xB0, 0xB9):
-            print("Note: The first instruction in the matched block was a key on/off. There may be " +\
+            print("Note: The first instruction in the matched block was a key on/off. There may be " +
                   "a more appropriate block earlier in the song.")
 
         first_delay = 0

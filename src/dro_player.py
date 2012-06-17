@@ -55,11 +55,14 @@ class OPLStream(object):
         self.channels = channels
         self.audio_stream = audio_stream # probably shouldn't be a local property...
         self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
-        self.buffer = bytearray(buffer_size * (self.bit_depth / 8) * self.channels)
+        self.buffer = self.__create_bytearray(buffer_size)
         self.pyaudio_buffer = buffer(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
         self.samples_to_render = 0 # only used for PyOPL 1.1 rendering method
         self.bank = 0
+
+    def __create_bytearray(self, size):
+        return bytearray(size * (self.bit_depth / 8) * self.channels)
 
     def write(self, register, value):
         if self.bank:
@@ -72,7 +75,7 @@ class OPLStream(object):
         samples_to_render = length_ms * self.frequency / 1000
         while samples_to_render > 0 and not self.stop_requested:
             if samples_to_render < self.buffer_size:
-                tmp_buffer = bytearray((samples_to_render % self.buffer_size) * (self.bit_depth / 8) * self.channels)
+                tmp_buffer = self.__create_bytearray((samples_to_render % self.buffer_size))
                 tmp_audio_buffer = buffer(tmp_buffer)
                 samples_to_render = 0
             else:
@@ -81,6 +84,10 @@ class OPLStream(object):
                 samples_to_render -= self.buffer_size
             self.opl.getSamples(tmp_buffer)
             self.audio_stream.write(buffer(tmp_audio_buffer))
+
+    def flush(self):
+        dummy_data = self.__create_bytearray(self.buffer_size)
+        self.audio_stream.write(buffer(dummy_data))
 
     def set_high_bank(self):
         self.bank = 1
@@ -155,6 +162,7 @@ class DROPlayer(object):
             self.update_thread.stop_request.set()
         if self.opl_stream is not None:
             self.opl_stream.stop_requested = True
+            #self.opl_stream.flush()
 
     def seek_to_time(self, seek_time):
         seeker = DROSeekerFactory(self)
