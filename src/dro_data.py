@@ -314,6 +314,102 @@ class DROLoopAnalyzer(object):
             return "Match(start=%s, end=%s, length=%s)" % (self.start, self.end, self.length)
 
     def analyze_dro(self, dro_song):
+        self.analyze_dro_one(dro_song)
+        self.analyze_dro_two(dro_song)
+        self.analyze_dro_three(dro_song)
+        self.analyze_dro_four(dro_song)
+
+    def __do_method_one_and_two_analysis(self, dro_data, original_indexes):
+        # From the index second from the end, compare to the last value at the end.
+        # If the current value matches the end value, compare all
+        # values preceding the current value against all values
+        # preceding the end value.
+        # (Probably a naive approach)
+        # Example:
+        #  [0, 1, 2, 3, 1, 2]
+        #               ^  ^
+        #  [0, 1, 2, 3, 1, 2]
+        #               ^  ^
+        #  [0, 1, 2, 3, 1, 2]
+        #            ^     ^
+        #  [0, 1, 2, 3, 1, 2]
+        #         ^        ^
+        #  [0, 1, 2, 3, 1, 2]
+        #      ^--/     ^--/
+        #   result:
+        #   section 1: start = 1, end = 2, length = 2
+        #   section 2: start = 4, end = 5, length = 2
+        curr_match = None
+        end_match = self.Match()
+        longest_match = self.Match()
+        end_index = len(dro_data) - 1
+        later_index = end_index
+        match_ended = False
+        # Iterate in reverse, also getting the index.
+        for i, curr_value in itertools.izip(xrange(end_index, -1, -1), (reversed(dro_data))):
+            # Ignore the end value
+            if i == end_index:
+                continue
+            later_value = dro_data[later_index]
+            if curr_value == later_value:
+                # Check if we're starting a new match
+                if later_index == end_index:
+                    curr_match = self.Match(start=i, end=i, length=0)
+                curr_match.length += 1
+                curr_match.start = i
+                if i == 0:
+                    match_ended = True
+            elif curr_match is not None:
+                match_ended = True
+
+            # Sequence has ended, and it's longer than the longest match so far,
+            #  or it's the same length as the longest match but has an earlier
+            #  starting point.
+            if match_ended:
+                if (curr_match.length > longest_match.length or
+                    (curr_match.length == longest_match.length and
+                     curr_match.start < longest_match.start)):
+                    longest_match = curr_match
+                    end_match = self.Match(
+                        start=later_index + 1,
+                        end=end_index,
+                        length=curr_match.length
+                    )
+                curr_match = None
+                later_index = end_index
+                match_ended = False
+
+            # If we're matching, decrement the end index.
+            if curr_match is not None:
+                later_index -= 1
+
+        print "My conclusions:"
+        if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
+            print "No loop found. I'm sorry."
+        else:
+            #print dro_data[longest_match.start:longest_match.end + 1]
+            #print dro_data[end_match.start:end_match.end + 1]
+            # Convert matching indexes to original indexes
+            longest_match = self.Match(
+                start=original_indexes[longest_match.start],
+                end=original_indexes[longest_match.end],
+                length=original_indexes[longest_match.end] - original_indexes[longest_match.start] + 1
+            )
+            end_match = self.Match(
+                start=original_indexes[end_match.start],
+                end=original_indexes[end_match.end],
+                length=original_indexes[end_match.end] - original_indexes[end_match.start] + 1
+            )
+            print "Loop section 1: start=%s, end=%s, length=%s." % (longest_match.start, longest_match.end, longest_match.length)
+            print "Loop section 2: start=%s, end=%s, length=%s." % (end_match.start, end_match.end, end_match.length)
+
+
+    def analyze_dro_one(self, dro_song):
+        dro_data = dro_song.data
+        original_indexes = range(len(dro_song.data))
+        self.__do_method_one_and_two_analysis(dro_data, original_indexes)
+
+    def analyze_dro_two(self, dro_song):
         # First, go through the data and only keep note on/off instructions and delays.
         # This is because sometimes the looped information has slightly different
         # data.
@@ -334,91 +430,9 @@ class DROLoopAnalyzer(object):
                 dro_data.append(datum)
                 original_indexes.append(i)
 
-        # Ignore the above, it gives poor results.
-        dro_data = dro_song.data
-        original_indexes = range(len(dro_song.data))
+        self.__do_method_one_and_two_analysis(dro_data, original_indexes)
 
-        # From the start, compare to the last value at the end.
-        # If the current value matches the end value, compare all
-        # values preceding the current value against all values
-        # preceding the end value.
-        # (Probably a naive approach)
-        # Example:
-        #  [0, 1, 2, 3, 1, 2]
-        #   ^              ^
-        #  [0, 1, 2, 3, 1, 2]
-        #      ^           ^
-        #  [0, 1, 2, 3, 1, 2]
-        #         ^        ^
-        #  [0, 1, 2, 3, 1, 2]
-        #      \--^     \--^
-        #   result:
-        #   section 1: start = 1, end = 2, length = 2
-        #   section 2: start = 4, end = 5, length = 2
-        end_match = self.Match()
-        longest_match = self.Match()
-        end_value = dro_data[-1]
-        end_index = len(dro_data) - 1
-        for i, curr_delay in enumerate(dro_data):
-            if (curr_delay == end_value and
-                i != end_index): # only take action if this is not the end item
-                curr_match = self.Match(start=i, end=i, length=0) # length is corrected in first iteration of the loop below
-                for early_i, later_i in itertools.izip(
-                    xrange(i, 0, -1),
-                    xrange(end_index, 0, -1)
-                ):
-                    early_value = dro_data[early_i]
-                    later_value = dro_data[later_i]
-                    match_ended = False
-
-                    if early_value == later_value:
-                        curr_match.length += 1
-                        curr_match.start = early_i
-
-                        # Special case, if we've reached the start and it still matches
-                        if early_i == 0:
-                            match_ended = True
-                    else:
-                        match_ended = True
-
-                    # Sequence has ended, and it's longer than the longest match so far,
-                    #  or it's the same length as the longest match but has an earlier
-                    #  starting point.
-                    if match_ended:
-                        if (curr_match.length > longest_match.length or
-                            (curr_match.length == longest_match.length and
-                            curr_match.start < longest_match.start)):
-                            longest_match = curr_match
-                            end_match = self.Match(
-                                start=later_i + 1, # ergh, this looks wrong
-                                end=end_index,
-                                length=curr_match.length
-                            )
-                        break
-
-        print "My conclusions:"
-        if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
-            print "No loop found. I'm sorry."
-        else:
-            print dro_data[longest_match.start:longest_match.end + 1]
-            print dro_data[end_match.start:end_match.end + 1]
-            # Convert matching indexes to original indexes
-            longest_match = self.Match(
-                start=original_indexes[longest_match.start],
-                end=original_indexes[longest_match.end],
-                length=original_indexes[longest_match.end] - original_indexes[longest_match.start] + 1
-            )
-            end_match = self.Match(
-                start=original_indexes[end_match.start],
-                end=original_indexes[end_match.end],
-                length=original_indexes[end_match.end] - original_indexes[end_match.start] + 1
-            )
-            print "Loop section 1: start=%s, end=%s, length=%s." % (longest_match.start, longest_match.end, longest_match.length)
-            print "Loop section 2: start=%s, end=%s, length=%s." % (end_match.start, end_match.end, end_match.length)
-
-        self.analyze_dro_two(dro_song)
-
-    def analyze_dro_two(self, dro_song):
+    def analyze_dro_three(self, dro_song):
         # This is the shortest length that we want to keep track of.
         notable_threshold = 10
 
@@ -448,7 +462,7 @@ class DROLoopAnalyzer(object):
         sections.sort(key=lambda m: m.length, reverse=True)
         print "Interesting sections: %s" % sections[:10]
 
-    def analyze_dro_poo(self, dro_song):
+    def analyze_dro_four(self, dro_song):
         dro_data = dro_song.data
         # Split the data in half and see what the largest matching block is.
         # This will give us an indication on whether or not the song loops, and if so,
