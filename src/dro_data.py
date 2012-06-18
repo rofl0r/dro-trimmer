@@ -405,11 +405,21 @@ class DROLoopAnalyzer(object):
 
 
     def analyze_dro_one(self, dro_song):
+        """
+        Goes through the data backwards. Finds the "earliest" sequence of instructions that
+        matches the sequence of instructions at the end of the song.
+        """
         dro_data = dro_song.data
         original_indexes = range(len(dro_song.data))
         self.__do_method_one_and_two_analysis(dro_data, original_indexes)
 
     def analyze_dro_two(self, dro_song):
+        """
+        Goes through the data backwards. Finds the "earliest" sequence of instructions that
+        matches the sequence of instructions at the end of the song. Only looks at
+        delay and note on/off instructions.
+        """
+
         # First, go through the data and only keep note on/off instructions and delays.
         # This is because sometimes the looped information has slightly different
         # data.
@@ -433,6 +443,11 @@ class DROLoopAnalyzer(object):
         self.__do_method_one_and_two_analysis(dro_data, original_indexes)
 
     def analyze_dro_three(self, dro_song):
+        """
+        Finds the the 10 longest blocks of instructions, separated by delay instructions.
+        Excludes the first block at the beginning of the song (which is usually just
+        register initialization, in DRO 2).
+        """
         # This is the shortest length that we want to keep track of.
         notable_threshold = 10
 
@@ -460,9 +475,17 @@ class DROLoopAnalyzer(object):
                 sections.append(curr_section)
 
         sections.sort(key=lambda m: m.length, reverse=True)
-        print "Interesting sections: %s" % sections[:10]
+        if sections[0].start == 0:
+            interesting_sections = sections[1:11] # skip the first one, since it's the start of the song.
+        else:
+            interesting_sections = sections[0:10]
+        print "Interesting sections: %s" % interesting_sections
 
     def analyze_dro_four(self, dro_song):
+        """
+        Splits the data in half, and uses Python's difflib.SequenceMatcher to
+        find the longest matching blocks in each half.
+        """
         dro_data = dro_song.data
         # Split the data in half and see what the largest matching block is.
         # This will give us an indication on whether or not the song loops, and if so,
@@ -507,3 +530,11 @@ class DROLoopAnalyzer(object):
         return (result[0],
                 result[1] + tmp_len,
                 first_delay)
+
+    def analyze_dro_five(self, dro_song):
+        """
+        Goes through the data forwards. Finds the "latest" sequence of instructions that
+        matches the sequence of instructions towards the start of the song, after the
+        first note on and the first delay instructions.
+        """
+        pass # TODO
