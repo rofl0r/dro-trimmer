@@ -318,6 +318,7 @@ class DROLoopAnalyzer(object):
         self.analyze_dro_two(dro_song)
         self.analyze_dro_three(dro_song)
         self.analyze_dro_four(dro_song)
+        self.analyze_dro_five(dro_song)
 
     def __do_method_one_and_two_analysis(self, dro_data, original_indexes):
         # From the index second from the end, compare to the last value at the end.
@@ -537,4 +538,82 @@ class DROLoopAnalyzer(object):
         matches the sequence of instructions towards the start of the song, after the
         first note on and the first delay instructions.
         """
-        pass # TODO
+        # First, find our starting point.
+        note_on_found = False
+        start_pos = 0
+        dro_data = dro_song.data
+        for i, reg_and_val in enumerate(dro_data):
+            reg = reg_and_val[0]
+            if reg in (dro_song.short_delay_code,
+                       dro_song.long_delay_code):
+                if note_on_found:
+                    # This is where we want to start, the first delay after the first "note on" instruction
+                    start_pos = i
+                    break
+                else:
+                    continue
+            if dro_song.file_version == DRO_FILE_V1:
+                if reg < 0x05: # skip non-register commands
+                    continue
+            if dro_song.file_version == DRO_FILE_V2:
+                if reg in (dro_song.short_delay_code, # skip delays
+                           dro_song.long_delay_code):
+                    continue
+                reg = dro_song.codemap[reg & 0x7F]
+            if reg in range(0xB0, 0xB9):
+                note_on_found = True
+
+        if start_pos == 0:
+            print "Forward search couldn't find a place to start."
+            return
+
+        # Next, do the search for reals.
+        # (This is very similar to method on & two, but goes forwards instead)
+        early_index = start_pos
+        curr_match = None
+        longest_match = self.Match()
+        start_match = self.Match()
+        match_ended = False
+        for i in xrange(start_pos + 1, len(dro_data)):
+            early_value = dro_data[early_index]
+            later_value = dro_data[i]
+
+            if early_value == later_value:
+                # Check if we're starting a new match
+                if early_index == start_pos:
+                    curr_match = self.Match(start=i, end=i, length=0)
+                curr_match.length += 1
+                curr_match.end = i
+                if i == len(dro_data) - 1:
+                    match_ended = True
+            elif curr_match is not None:
+                match_ended = True
+
+            # Sequence has ended, and it's longer than the longest match so far,
+            #  or it's the same length as the longest match but has a later
+            #  starting point.
+            if match_ended:
+                if (curr_match.length > longest_match.length or
+                    (curr_match.length == longest_match.length and
+                     curr_match.start > longest_match.start)):
+                    longest_match = curr_match
+                    start_match = self.Match(
+                        start=start_pos,
+                        end=early_index - 1,
+                        length=curr_match.length
+                    )
+                curr_match = None
+                early_index = start_pos
+                match_ended = False
+
+            # If we're matching, increment the start index.
+            if curr_match is not None:
+                early_index += 1
+
+        print "My conclusions:"
+        if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
+            print "No loop found. I'm sorry."
+        else:
+            print "Loop section 1: start=%s, end=%s, length=%s." % (start_match.start, start_match.end, start_match.length)
+            print "Loop section 2: start=%s, end=%s, length=%s." % (longest_match.start, longest_match.end, longest_match.length)
+
