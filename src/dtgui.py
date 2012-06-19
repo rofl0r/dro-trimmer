@@ -828,12 +828,40 @@ class DTApp(wx.App):
     def buttonFindRegPrevious(self, event):
         self.buttonFindReg(event, look_backwards=True) # blech
 
+    @catchUnhandledExceptions
+    @requiresDROLoaded
+    def buttonNextNote(self, event, look_backwards=False):
+        if not self.mainframe.dtlist.HasSelected():
+            start = 0
+        else:
+            start = self.mainframe.dtlist.GetLastSelected() + 1
+        i = self.drosong.find_next_instruction(start, "DALL", look_backwards=look_backwards)
+        if i == -1:
+            self.mainframe.statusbar.SetStatusText("No more notes found.")
+            return
+        self.mainframe.dtlist.Deselect()
+        self.mainframe.dtlist.SelectItemManual(i)
+        self.mainframe.dtlist.EnsureVisible(i)
+        self.mainframe.dtlist.RefreshViewableItems()
+
+    def buttonPreviousNote(self, event):
+        self.buttonNextNote(event, look_backwards=True)
+
     # ____________________
     # Start Misc Event Handlers
     def keyListenerForList(self, event):
         keycode = event.GetKeyCode()
         if keycode in (wx.WXK_DELETE, wx.WXK_BACK): # delete or backspace
             self.buttonDelete(None)
+            event.Veto()
+        elif keycode == 44:
+            # < or , Previous note
+            self.buttonPreviousNote(event)
+            event.Veto()
+        elif keycode == 46:
+            # > or . Next note
+            self.buttonNextNote(event)
+            event.Veto()
         else:
             event.Skip()
 
