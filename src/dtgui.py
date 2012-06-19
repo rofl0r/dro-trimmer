@@ -755,12 +755,18 @@ class DTApp(wx.App):
             selected_items = self.mainframe.dtlist.GetAllSelected()
             self.drosong.delete_instructions(selected_items)
             self.mainframe.dtlist.RefreshItemCount()
-            self.mainframe.dtlist.RefreshViewableItems()
-            # Deselect all, and re-select only the first index we deleted.
+            # Deselect all, and re-select only the first index we deleted,
+            # or the last item in the list.
             first_item = selected_items[0]
             self.mainframe.dtlist.Deselect()
             if first_item < self.mainframe.dtlist.GetItemCount():
-                self.mainframe.dtlist.SelectItemManual(first_item)
+                newly_selected = first_item
+            else:
+                # Otherwise, select the list item in the list
+                newly_selected = self.mainframe.dtlist.GetItemCount() - 1
+            self.mainframe.dtlist.SelectItemManual(newly_selected)
+            self.mainframe.dtlist.EnsureVisible(newly_selected)
+            self.mainframe.dtlist.RefreshViewableItems()
             # Keep track of Undo buffer.
             # (Crap, requires knowledge that this is an "undoable" action.
             # Might be better to investigate triggering an event, or using
