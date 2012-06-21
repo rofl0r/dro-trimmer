@@ -398,39 +398,38 @@ class DROInfoDialog ( wx.Dialog ):
         md.Destroy()
 
 
-
 class DTMainMenuBar(wx.MenuBar):
     def __init__(self, *args, **kwds):
         wx.MenuBar.__init__(self, *args, **kwds)
         
         # File menu
         self.menuFile = wx.Menu()      
-        self.menuFile.Append(guiID("MENU_OPENDRO"), "Open DRO", "Open a DRO file.", wx.ITEM_NORMAL)
-        self.menuFile.Append(guiID("MENU_SAVEDRO"), "Save DRO", "Save the current DRO file.", wx.ITEM_NORMAL)
-        self.menuFile.Append(guiID("MENU_SAVEDROAS"), "Save DRO As...", "Save the current DRO file under a new name.", wx.ITEM_NORMAL)
+        self.menuFile.Append(guiID("MENU_OPENDRO"), "&Open DRO...\tCtrl-O", "Open a DRO file.", wx.ITEM_NORMAL)
+        self.menuFile.Append(guiID("MENU_SAVEDRO"), "&Save DRO\tCtrl-S", "Save the current DRO file.", wx.ITEM_NORMAL)
+        self.menuFile.Append(guiID("MENU_SAVEDROAS"), "Save DRO &As...\tCtrl-Shift-S", "Save the current DRO file under a new name.", wx.ITEM_NORMAL)
         self.menuFile.AppendSeparator()
-        self.menuFile.Append(wx.ID_EXIT, "Exit", "Quit, begone, depart, flee.", wx.ITEM_NORMAL)
-        self.Append(self.menuFile, "File")
+        self.menuFile.Append(wx.ID_EXIT, "E&xit", "Quit, begone, depart, flee.", wx.ITEM_NORMAL)
+        self.Append(self.menuFile, "&File")
 
         self.menuEdit = wx.Menu()
-        self.undoMenuItem = self.menuEdit.Append(guiID("MENU_UNDO"), "Undo", "Undoes the last change you made to the data.", wx.ITEM_NORMAL)
-        self.redoMenuItem = self.menuEdit.Append(guiID("MENU_REDO"), "Redo", "Redoes the previously undone change you made to the data.", wx.ITEM_NORMAL)
+        self.undoMenuItem = self.menuEdit.Append(guiID("MENU_UNDO"), "&Undo\tCtrl-Z", "Undoes the last change you made to the data.", wx.ITEM_NORMAL)
+        self.redoMenuItem = self.menuEdit.Append(guiID("MENU_REDO"), "&Redo\tCtrl-Y", "Redoes the previously undone change you made to the data.", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
-        self.menuEdit.Append(guiID("MENU_GOTO"), "Goto", "Goes to a specific position.", wx.ITEM_NORMAL)
-        self.menuEdit.Append(guiID("MENU_FINDREG"), "Find Register", "Find the next occurrence of a register.", wx.ITEM_NORMAL)
-        self.menuEdit.Append(guiID("MENU_FINDLOOP"), "Find Loop", "Tries to find a matching section of data.", wx.ITEM_NORMAL) # Wraithverge
-        self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO Info", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
+        self.menuEdit.Append(guiID("MENU_GOTO"), "&Goto...\tCtrl-G", "Goes to a specific position.", wx.ITEM_NORMAL)
+        self.menuEdit.Append(guiID("MENU_FINDREG"), "&Find Register...\tCtrl-F", "Find the next occurrence of a register.", wx.ITEM_NORMAL)
+        self.menuEdit.Append(guiID("MENU_FINDLOOP"), "Find &Loop\tCtrl-L", "Tries to find a matching section of data.", wx.ITEM_NORMAL) # Wraithverge
+        self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO &Info...\tCtrl-I", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
-        self.menuEdit.Append(guiID("MENU_DELETE"), "Delete", "Deletes the currently selected instruction.", wx.ITEM_NORMAL)
-        self.Append(self.menuEdit, "Edit")
+        self.menuEdit.Append(guiID("MENU_DELETE"), "&Delete Instruction(s)\tDEL", "Deletes the currently selected instruction.", wx.ITEM_NORMAL)
+        self.Append(self.menuEdit, "&Edit")
 
         # Help menu
         self.menuHelp = wx.Menu()
-        self.menuHelpHelp = wx.MenuItem(self.menuHelp, wx.ID_HELP, "Help", "Open the help file.", wx.ITEM_NORMAL)
+        self.menuHelpHelp = wx.MenuItem(self.menuHelp, wx.ID_HELP, "&Help...\tCtrl-H", "Displays a little bit of help.", wx.ITEM_NORMAL)
         self.menuHelp.AppendItem(self.menuHelpHelp)
-        self.menuHelpAbout = wx.MenuItem(self.menuHelp, guiID("MENU_ABOUT"), "About", "Open the about dialog.", wx.ITEM_NORMAL)
+        self.menuHelpAbout = wx.MenuItem(self.menuHelp, guiID("MENU_ABOUT"), "&About...", "Open the about dialog.", wx.ITEM_NORMAL)
         self.menuHelp.AppendItem(self.menuHelpAbout)
-        self.Append(self.menuHelp, "Help")
+        self.Append(self.menuHelp, "&Help")
 
         self.__set_properties()
         self.__do_layout()
@@ -716,11 +715,14 @@ class DTApp(wx.App):
 
     def menuHelp(self, event):
         hd = wx.MessageDialog(self.mainframe,
-            '1) Select an instruction.\n' + \
-            '2) Delete via button or the Del key.\n' + \
-            '3) Profit!\n\n' +\
-            'If you\'re trimming a looping song, look for a\n' + \
-            'whole bunch of instructions with no delays, as\n' + \
+            'Full instructions are available online.\n' +
+            'https://bitbucket.org/jestar_jokin/dro-trimmer/wiki/Home\n'
+            '\n' +
+            '1) Select an instruction.\n' +
+            '2) Delete via button or the Del key.\n' +
+            '3) Profit!\n\n' +
+            'If you\'re trimming a looping song, look for a\n' +
+            'whole bunch of instructions with no delays, as\n' +
             'this might be where the instruments are set up.',
             'Help',
             style=wx.OK|wx.ICON_INFORMATION)
@@ -731,12 +733,14 @@ class DTApp(wx.App):
         ad = wx.MessageDialog(self.mainframe,
             ('DRO Trimmer ' + gVERSION + "\n"
             'Laurence Dougal Myers\n' +
-            'Web: http://www.jestarjokin.net\n' +
+            'Web: http://www.jestarjokin.net/apps/drotrimmer\n' +
+            '     https://bitbucket.org/jestar_jokin/dro-trimmer/\n' +
             'E-Mail: jestarjokin@jestarjokin.net\n\n' +
             'Thanks to:\n' +
             'The DOSBOX team\n' +
             'The AdPlug team\n' +
             'Adam Nielsen for PyOPL\n' +
+            'Wraithverge for testing, feedback and contributions\n' +
             'pi-r-squared for their original attempt at a DRO editor'),
             'About',
             style=wx.OK|wx.ICON_INFORMATION)
