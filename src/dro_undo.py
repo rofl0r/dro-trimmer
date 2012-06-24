@@ -145,5 +145,3 @@ class UndoController(object):
             return memo.description
         return None
 
-
-g_undo_controller = UndoController()

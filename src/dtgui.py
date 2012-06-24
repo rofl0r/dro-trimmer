@@ -26,6 +26,7 @@
 import os.path
 import StringIO
 import traceback
+import sys
 try:
     import win32api
 except ImportError:
@@ -33,6 +34,7 @@ except ImportError:
 import wx
 import dro_data
 import dro_io
+import dro_globals
 try:
     import dro_player
 except ImportError:
@@ -40,8 +42,6 @@ except ImportError:
 import dro_undo
 import dro_util
 
-
-gVERSION = "v3 r8"
 gGUIIDS = {}
 
 def errorAlert(parent, msg, title="Error"):
@@ -443,12 +443,12 @@ class DTMainMenuBar(wx.MenuBar):
 
     def updateUndoRedoMenuItems(self):
         # Check if there's anything left to undo
-        if dro_undo.g_undo_controller.has_something_to_undo():
+        if dro_globals.g_undo_controller.has_something_to_undo():
             self.undoMenuItem.Enable(True)
         else:
             self.undoMenuItem.Enable(False)
         # Check if there's anything left to undo
-        if dro_undo.g_undo_controller.has_something_to_redo():
+        if dro_globals.g_undo_controller.has_something_to_redo():
             self.redoMenuItem.Enable(True)
         else:
             self.redoMenuItem.Enable(False)
@@ -462,10 +462,23 @@ class DTMainFrame(wx.Frame):
         del kwds['tail_length']
         wx.Frame.__init__(self, *args, **kwds)
 
-        # set window icon (for Windows binaries only)
+        # Set icon, if available
+        use_external_icon = True
         if win32api is not None:
-            exeName = win32api.GetModuleFileName(win32api.GetModuleHandle(None))
-            icon = wx.Icon(exeName, wx.BITMAP_TYPE_ICO)
+            exe_name = win32api.GetModuleFileName(win32api.GetModuleHandle(None))
+        else:
+            exe_name = sys.executable # seems to do the same thing...
+        # If the program is being run from the Python interpreter (and not
+        #  a packged exe), use the external icon file. Otherwise, load the
+        #  icon from the packaged exe resources.
+        if not os.path.basename(exe_name).startswith("python"):
+            icon = wx.Icon(exe_name, wx.BITMAP_TYPE_ICO)
+            self.SetIcon(icon)
+            use_external_icon = False
+        if use_external_icon:
+            exe_path = dro_util.get_exe_path()
+            ico_name = os.path.join(exe_path, 'dt.ico')
+            icon = wx.Icon(ico_name, wx.BITMAP_TYPE_ICO)
             self.SetIcon(icon)
 
         self.statusbar = self.CreateStatusBar()
@@ -522,7 +535,6 @@ class DTMainFrame(wx.Frame):
 
 class DTApp(wx.App):
     def OnInit(self):
-        global gVERSION
         self.drosong = None
         # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
         #  still make use of the editor.
@@ -540,7 +552,7 @@ class DTApp(wx.App):
         self.goto_dialog = None # Goto diaog
         self.frdialog = None # Find Register dialog
 
-        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer %s" % (gVERSION,), size=wx.Size(640, 480),
+        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer %s" % (dro_globals.g_app_version,), size=wx.Size(640, 480),
             dtparent=self, tail_length=self.tail_length)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
@@ -630,7 +642,7 @@ class DTApp(wx.App):
                             style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
             # Reset undo history when a new file is opened.
-            dro_undo.g_undo_controller.reset()
+            dro_globals.g_undo_controller.reset()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
             # Reset the Goto dialog, if it exists.
             if self.goto_dialog is not None:
@@ -692,7 +704,7 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuUndo(self, event):
-        undo_desc = dro_undo.g_undo_controller.undo()
+        undo_desc = dro_globals.g_undo_controller.undo()
         if undo_desc:
             self.mainframe.statusbar.SetStatusText("Undone: %s" % (undo_desc,))
             self.mainframe.dtlist.RefreshItemCount()
@@ -704,7 +716,7 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuRedo(self, event):
-        redo_desc = dro_undo.g_undo_controller.redo()
+        redo_desc = dro_globals.g_undo_controller.redo()
         if redo_desc:
             self.mainframe.statusbar.SetStatusText("Redone: %s" % (redo_desc,))
             self.mainframe.dtlist.RefreshItemCount()
@@ -731,7 +743,7 @@ class DTApp(wx.App):
     
     def menuAbout(self, event):
         ad = wx.MessageDialog(self.mainframe,
-            ('DRO Trimmer ' + gVERSION + "\n"
+            ('DRO Trimmer ' + dro_globals.g_app_version + "\n"
             'Laurence Dougal Myers\n' +
             'Web: http://www.jestarjokin.net/apps/drotrimmer\n' +
             '     https://bitbucket.org/jestar_jokin/dro-trimmer/\n' +
@@ -919,7 +931,7 @@ class DTApp(wx.App):
         self.UpdateDROInfo(*args_list)
 
     #@requiresDROLoaded # not really required here
-    @dro_undo.undoable("DRO Header Changes", dro_undo.g_undo_controller, __UpdateDROInfoRedo)
+    @dro_undo.undoable("DRO Header Changes", dro_globals.g_undo_controller, __UpdateDROInfoRedo)
     def UpdateDROInfo(self, opl_type, ms_length):
         original_values = [self.drosong.opl_type, self.drosong.ms_length]
         self.drosong.opl_type = opl_type
@@ -929,7 +941,7 @@ class DTApp(wx.App):
 
 def run():
     app = None
-    
+    dro_globals.g_undo_controller = dro_undo.UndoController()
     try:
         app = DTApp(0)
         app.SetExitOnFrameDelete(True)

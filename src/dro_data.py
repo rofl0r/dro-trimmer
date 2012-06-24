@@ -26,6 +26,7 @@
 import itertools
 import difflib
 import dro_undo
+import dro_globals
 import regdata
 
 DRO_FILE_V1 = 1
@@ -103,7 +104,7 @@ class DROSong(object):
             if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
                 self.ms_length += reg_and_val[1]
 
-    @dro_undo.undoable("Delete Instruction(s)", dro_undo.g_undo_controller, __insert_instructions)
+    @dro_undo.undoable("Delete Instruction(s)", dro_globals.g_undo_controller, __insert_instructions)
     def delete_instructions(self, index_list):
         """ Deletes instructions at the given indexes.
 

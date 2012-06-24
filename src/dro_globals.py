@@ -23,45 +23,9 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+g_wx_app = None # not used, yet
 
-from distutils.core import setup
-import os
-import py2exe
-import dro_globals
+g_undo_controller = None
 
-# includes for py2exe
-includes=[]
-
-opts = { 'py2exe': { 
-    'includes':includes,
-    "dll_excludes": ["MSVCP90.dll"]
-} }
-
-def convert_version(in_version):
-    ver_bits = [v[1:] for v in in_version.split()]
-    if len(ver_bits) == 2:
-        ver_bits.append("0")
-    return '.'.join(ver_bits)
-
-setup(version = convert_version(dro_globals.g_app_version),
-      description = "DRO Trimmer",
-      name = "DRO Trimmer",
-      author = "Laurence Dougal Myers",
-      author_email = "jestarjokin@jestarjokin.net",
-      windows = [
-        {
-            "script": "drotrim.py",
-            "icon_resources": [(1, "dt.ico")],
-            "data_files": [(".", ["drotrim.ini"])]
-        }
-      ],
-      console = [
-        {
-            "script": "dro_player.py"
-        },
-        {
-            "script": "dro2to1.py"
-        },
-      ],
-      options=opts
-)
+g_app_name = "DRO Trimmer"
+g_app_version = "v3 r8"

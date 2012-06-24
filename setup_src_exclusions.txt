@@ -1,2 +1,4 @@
 .pyc
 .dro
+.bak
+doc_template.html
