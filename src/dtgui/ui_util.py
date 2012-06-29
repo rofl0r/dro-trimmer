@@ -22,13 +22,48 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+import StringIO
+import traceback
+import wx
 
-g_wx_app = None # not used, yet
+gGUIIDS = {}
 
-g_undo_controller = None
-def get_undo_controller():
-    # Must be instantiated externally.
-    return g_undo_controller
+def errorAlert(parent, msg, title="Error"):
+    alert = wx.MessageDialog(parent, #hrmmm
+        msg,
+        title,
+        wx.OK|wx.ICON_ERROR)
+    alert.ShowModal()
+    alert.Destroy()
 
-g_app_name = "DRO Trimmer"
-g_app_version = "v3 r8"
+def catchUnhandledExceptions(func):
+    def inner_func(self, *args, **kwds):
+        try:
+            func(self, *args, **kwds)
+        except Exception, e:
+            fp = StringIO.StringIO()
+            traceback.print_exc(file=fp)
+
+            traceback.print_exc()
+            errorAlert(self.mainframe, #that's a bit gross
+                "An unhandled exception was thrown, please contact support.\n" +
+                "\nError:\n" + fp.getvalue(),
+                "Unhandled Exception")
+    return inner_func
+
+def requiresDROLoaded(func):
+    def inner_func(self, *args, **kwds):
+        if self.drosong is None:
+            # A bit gross
+            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
+            return
+        else:
+            func(self, *args, **kwds)
+    return inner_func
+
+def guiID(name):
+    """ Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
+    If the name is not in the dict, it's added."""
+    if not gGUIIDS.has_key(name):
+        gGUIIDS[name] = wx.NewId()
+    return gGUIIDS[name]

@@ -24,14 +24,14 @@
 #    THE SOFTWARE.
 import weakref
 
-def undoable(description, undo_controller, undo_function):
+def undoable(description, undo_controller_getter, undo_function):
     """ Decorator. Allows any side effects
     of the method to be undone or redone at a later stage.
 
     Requirements for use:
     - It must be used to decorate a method on a class.
-    - You must pass in an "UndoController" object (or similar), and it must
-      have a boolean property "bypass", representing whether this
+    - You must pass in a method that returns an "UndoController" object (or similar),
+      which in turn must have a boolean property "bypass", representing whether this
       invocation should track the "undo" state.
     - The wrapped method must return an object, representing the original
       state of the changed data. (The "original state")
@@ -56,9 +56,9 @@ def undoable(description, undo_controller, undo_function):
                 undo_state = result
                 value = None
 
-            bypass_undo = g_undo_controller.bypass
+            bypass_undo = undo_controller_getter().bypass
             if not bypass_undo:
-                g_undo_controller.append(
+                undo_controller_getter().append(
                     UndoMemo(description, self, undo_function, undo_state, func, (args, kwds))
                 )
 

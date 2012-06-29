@@ -24,4 +24,12 @@
 #    THE SOFTWARE.
 #
 
+import dro_control
+import dro_data
+import dro_globals
+import dro_io
+import dro_player
+import dro_undo
+import dro_util
+
 import drotrim

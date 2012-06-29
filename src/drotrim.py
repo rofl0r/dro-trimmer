@@ -31,4 +31,4 @@
 
 import dtgui
 
-dtgui.run()
+dtgui.start_gui_app()
