@@ -34,8 +34,8 @@ except ImportError:
 import dro_undo
 import dro_util
 from containers import DTMainFrame
-from dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog
-from ui_util import guiID, catchUnhandledExceptions, requiresDROLoaded
+from dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
+from ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
 
 class DTApp(wx.App):
     def OnInit(self):
@@ -55,6 +55,7 @@ class DTApp(wx.App):
             self.tail_length = 3000
         self.goto_dialog = None # Goto diaog
         self.frdialog = None # Find Register dialog
+        self.loop_analysis_dialog = None # Loop Analysis Dialog
 
         self.mainframe = DTMainFrame(self, None, -1, "DRO Trimmer %s" % (dro_globals.g_app_version,), size=wx.Size(640, 480),
             tail_length=self.tail_length)
@@ -76,7 +77,7 @@ class DTApp(wx.App):
         wx.EVT_MENU(self.mainframe, guiID("MENU_FINDREG"), self.menuFindReg)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DELETE"), self.menuDelete)
         wx.EVT_MENU(self.mainframe, guiID("MENU_DROINFO"), self.menuDROInfo)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_FINDLOOP"), self.menuFindLoop)
+        wx.EVT_MENU(self.mainframe, guiID("MENU_LOOPANALYSIS"), self.menuLoopAnalysis)
         wx.EVT_MENU(self.mainframe, wx.ID_HELP, self.menuHelp)
         wx.EVT_MENU(self.mainframe, guiID("MENU_ABOUT"), self.menuAbout)
 
@@ -151,6 +152,9 @@ class DTApp(wx.App):
             # Reset the Goto dialog, if it exists.
             if self.goto_dialog is not None:
                 self.goto_dialog.reset(len(self.drosong.data) - 1)
+            # Reset the loop analysis dialog, if it exists.
+            if self.loop_analysis_dialog is not None:
+                self.loop_analysis_dialog.load_results(None)
 
     @catchUnhandledExceptions
     @requiresDROLoaded
@@ -189,12 +193,15 @@ class DTApp(wx.App):
         self.frdialog = DTDialogFindReg(self, self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
 
-    # This section was added by Wraithverge.
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuFindLoop(self, event):
-        result = dro_data.DROLoopAnalyzer().analyze_dro(self.drosong)
-        self.setStatusText("Please look at the console to view the result ...")
+    def menuLoopAnalysis(self, event):
+        if self.loop_analysis_dialog is not None:
+            self.loop_analysis_dialog.Destroy()
+        # Create a dummy analyzer so we know how many result pages we need to create.
+        analyzer = dro_data.DROLoopAnalyzer()
+        self.loop_analysis_dialog = LoopAnalysisDialog(self, analyzer, self.mainframe)
+        self.loop_analysis_dialog.Show()
 
     def menuDelete(self, event):
         self.buttonDelete(None)
@@ -372,6 +379,17 @@ class DTApp(wx.App):
 
     def buttonPreviousNote(self, event):
         self.buttonNextNote(event, look_backwards=True)
+
+    @catchUnhandledExceptions
+    @requiresDROLoaded
+    def buttonAnalyzeLoop(self, event):
+        if self.loop_analysis_dialog is None:
+            errorAlert(self.mainframe, "Loop analysis requires the Loop Analysis dialog to be open, but none found.")
+            return
+        analyzer = dro_data.DROLoopAnalyzer()
+        results = analyzer.analyze_dro(self.drosong)
+        self.loop_analysis_dialog.load_results(results)
+        self.setStatusText("Loop analysis finished.")
 
     # ____________________
     # Start Misc Event Handlers

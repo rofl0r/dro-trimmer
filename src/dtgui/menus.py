@@ -46,7 +46,7 @@ class DTMainMenuBar(wx.MenuBar):
         self.menuEdit.AppendSeparator()
         self.menuEdit.Append(guiID("MENU_GOTO"), "&Goto...\tCtrl-G", "Goes to a specific position.", wx.ITEM_NORMAL)
         self.menuEdit.Append(guiID("MENU_FINDREG"), "&Find Register...\tCtrl-F", "Find the next occurrence of a register.", wx.ITEM_NORMAL)
-        self.menuEdit.Append(guiID("MENU_FINDLOOP"), "Find &Loop\tCtrl-L", "Tries to find a matching section of data.", wx.ITEM_NORMAL) # Wraithverge
+        self.menuEdit.Append(guiID("MENU_LOOPANALYSIS"), "&Loop Analysis...\tCtrl-L", "Attempts to find sections of data that indicate a loop point.", wx.ITEM_NORMAL)
         self.menuEdit.Append(guiID("MENU_DROINFO"), "DRO &Info...\tCtrl-I", "View or edit the DRO file info (song length, hardware type)", wx.ITEM_NORMAL)
         self.menuEdit.AppendSeparator()
         self.menuEdit.Append(guiID("MENU_DELETE"), "&Delete Instruction(s)\tDEL", "Deletes the currently selected instruction.", wx.ITEM_NORMAL)

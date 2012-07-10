@@ -63,9 +63,7 @@ class DTMainFrame(wx.Frame):
             self.SetIcon(icon)
 
         self.statusbar = self.CreateStatusBar()
-
         self.dtlist = DTSongDataList(self, wx_app.drosong)
-
         self.panel_1 = wx.Panel(self, -1)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
         self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
@@ -113,6 +111,25 @@ class DTMainFrame(wx.Frame):
         self.Layout()
         self.SetSize((600, 400))
 
-#class LoopAnalysisFrame(wx.Frame):
-#    def __init__(self, *args, **kwds):
-#        wx.Frame.__init__(self, *args, **kwds)
+
+class TextPanel(wx.Panel):
+    def __init__(self, parent, text=None):
+        wx.Panel.__init__(self, parent)
+        if text is None:
+            text = ""
+        self.textCtrl = wx.TextCtrl(self, -1, text, style=wx.TE_MULTILINE)
+        self.__set_properties()
+        self.__do_layout()
+
+    def __set_properties(self):
+        self.textCtrl.SetEditable(False)
+
+    def __do_layout(self):
+        sizer = wx.BoxSizer()
+        sizer.Add(self.textCtrl, 1, wx.EXPAND)
+        self.SetSizer(sizer)
+        sizer.Fit(self)
+        self.Layout()
+
+    def setText(self, text):
+        self.textCtrl.SetValue(text)
