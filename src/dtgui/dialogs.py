@@ -24,10 +24,11 @@
 #    THE SOFTWARE.
 import wx
 import dro_data
+import dro_globals
 from ui_util import guiID, errorAlert
 
 class DTDialogGoto(wx.Dialog):
-    def __init__(self, parent, max_pos, *args, **kwds):
+    def __init__(self, wx_app, parent, max_pos, *args, **kwds):
         # begin wxGlade: DTDialogGoto.__init__
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
         wx.Dialog.__init__(self, parent, *args, **kwds)
@@ -39,7 +40,7 @@ class DTDialogGoto(wx.Dialog):
         self.__do_layout()
         # end wxGlade
         self.parent = parent
-        wx.EVT_BUTTON(self, guiID("BUTTON_GOTO_GO"), self.parent.parent.buttonGoto) # "parent.parent" is gross
+        wx.EVT_BUTTON(self, guiID("BUTTON_GOTO_GO"), wx_app.buttonGoto)
 
     def __set_properties(self):
         # begin wxGlade: DTDialogGoto.__set_properties
@@ -68,7 +69,7 @@ class DTDialogGoto(wx.Dialog):
 
 
 class DTDialogFindReg(wx.Dialog):
-    def __init__(self, *args, **kwds):
+    def __init__(self, wx_app, *args, **kwds):
         # begin wxGlade: DTDialogFindReg.__init__
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
         wx.Dialog.__init__(self, *args, **kwds)
@@ -92,8 +93,8 @@ class DTDialogFindReg(wx.Dialog):
         self.bFindPrevious = wx.Button(self, guiID("BUTTON_FINDREGPREV"), "Find Previous")
         self.bCancel = wx.Button(self, wx.ID_CANCEL, "Close")
 
-        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREG"), self.parent.parent.buttonFindReg) # gross
-        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREGPREV"), self.parent.parent.buttonFindRegPrevious) # gross
+        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREG"), wx_app.buttonFindReg)
+        wx.EVT_BUTTON(self, guiID("BUTTON_FINDREGPREV"), wx_app.buttonFindRegPrevious)
 
         self.__set_properties()
         self.__do_layout()
@@ -192,15 +193,16 @@ class DROInfoDialog ( wx.Dialog ):
             self.StartEditMode(event)
 
     def StartEditMode(self, event):
-        md = wx.MessageDialog(self,
-            ("Editing this information is not recommended, and is only required for broken DRO files. "
-             "I would try ripping the song again, instead. "
-             "Don't alter anything here if you don't have to!\n"
-             "Proceed?"),
-            style=wx.OK|wx.CANCEL|wx.ICON_EXCLAMATION)
-        result = md.ShowModal()
-        md.Destroy()
-        if result == wx.ID_OK:
+#        md = wx.MessageDialog(self,
+#            ("Editing this information is not recommended, and is only required for broken DRO files. "
+#             "I would try ripping the song again, instead. "
+#             "Don't alter anything here if you don't have to!\n"
+#             "Proceed?"),
+#            style=wx.OK|wx.CANCEL|wx.ICON_EXCLAMATION)
+#        result = md.ShowModal()
+#        md.Destroy()
+#        if result == wx.ID_OK:
+            dro_globals.g_wx_app.setStatusText("Edit mode enabled, be careful!")
             self.edit_mode = True
             #self.tcDROVersion.Enable()
             self.cHardwareType.Enable()
@@ -217,7 +219,7 @@ class DROInfoDialog ( wx.Dialog ):
         except Exception, e:
             errorAlert(self, "Error updating DRO info, check that the entered values are correct.")
             return
-        self.parent.parent.UpdateDROInfo(opl_type, ms_length) # "parent.parent" stuff is crap. TODO: make a proper app controller.
+        dro_globals.g_wx_app.updateDROInfo(opl_type, ms_length)
         md = wx.MessageDialog(self,
             "DRO info updated.\n"
             "Remember to save the file.",

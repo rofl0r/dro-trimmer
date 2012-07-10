@@ -56,8 +56,8 @@ class DTApp(wx.App):
         self.goto_dialog = None # Goto diaog
         self.frdialog = None # Find Register dialog
 
-        self.mainframe = DTMainFrame(None, -1, "DRO Trimmer %s" % (dro_globals.g_app_version,), size=wx.Size(640, 480),
-            dtparent=self, tail_length=self.tail_length)
+        self.mainframe = DTMainFrame(self, None, -1, "DRO Trimmer %s" % (dro_globals.g_app_version,), size=wx.Size(640, 480),
+            tail_length=self.tail_length)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
 
@@ -123,7 +123,7 @@ class DTApp(wx.App):
                 self.dro_player.stop()
                 self.dro_player.load_song(self.drosong)
             self.mainframe.dtlist.CreateList(self.drosong)
-            self.mainframe.statusbar.SetStatusText("Successfully opened " + os.path.basename(filename) + ".")
+            self.setStatusText("Successfully opened " + os.path.basename(filename) + ".")
             # File was auto-trimmed, notify user
             dats = "T" # despite auto-trimming string
             if auto_trimmed:
@@ -159,7 +159,7 @@ class DTApp(wx.App):
         # Seeing as the filename is stored in the drosong, I should modify
         #  save_dro to only take a DROSong.
         dro_io.DroFileIO().write(filename, self.drosong)
-        self.mainframe.statusbar.SetStatusText("File saved to " + filename + ".")
+        self.setStatusText("File saved to " + filename + ".")
 
     @requiresDROLoaded
     def menuSaveDROAs(self, event):
@@ -179,14 +179,14 @@ class DTApp(wx.App):
     def menuGoto(self, event):
         if self.goto_dialog is not None:
             self.goto_dialog.Destroy()
-        self.goto_dialog = DTDialogGoto(self.mainframe, len(self.drosong.data) - 1)
+        self.goto_dialog = DTDialogGoto(self, self.mainframe, len(self.drosong.data) - 1)
         self.goto_dialog.Show()
 
     @requiresDROLoaded
     def menuFindReg(self, event):
         if self.frdialog is not None:
             self.frdialog.Destroy() # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
-        self.frdialog = DTDialogFindReg(self.mainframe, self.drosong.file_version)
+        self.frdialog = DTDialogFindReg(self, self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
 
     # This section was added by Wraithverge.
@@ -194,7 +194,7 @@ class DTApp(wx.App):
     @requiresDROLoaded
     def menuFindLoop(self, event):
         result = dro_data.DROLoopAnalyzer().analyze_dro(self.drosong)
-        self.mainframe.statusbar.SetStatusText("Please look at the console to view the result ...")
+        self.setStatusText("Please look at the console to view the result ...")
 
     def menuDelete(self, event):
         self.buttonDelete(None)
@@ -210,24 +210,24 @@ class DTApp(wx.App):
     def menuUndo(self, event):
         undo_desc = dro_globals.get_undo_controller().undo()
         if undo_desc:
-            self.mainframe.statusbar.SetStatusText("Undone: %s" % (undo_desc,))
+            self.setStatusText("Undone: %s" % (undo_desc,))
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
         else:
-            self.mainframe.statusbar.SetStatusText("Nothing to undo.")
+            self.setStatusText("Nothing to undo.")
 
     @catchUnhandledExceptions
     @requiresDROLoaded
     def menuRedo(self, event):
         redo_desc = dro_globals.get_undo_controller().redo()
         if redo_desc:
-            self.mainframe.statusbar.SetStatusText("Redone: %s" % (redo_desc,))
+            self.setStatusText("Redone: %s" % (redo_desc,))
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
         else:
-            self.mainframe.statusbar.SetStatusText("Nothing to redo.")
+            self.setStatusText("Nothing to redo.")
 
     def menuHelp(self, event):
         hd = wx.MessageDialog(self.mainframe,
@@ -322,16 +322,16 @@ class DTApp(wx.App):
         try:
             position = int(position)
         except Exception:
-            self.mainframe.statusbar.SetStatusText("Invalid position for goto: %s" % position)
+            self.setStatusText("Invalid position for goto: %s" % position)
             return
         if position < 0 or position >= len(self.drosong.data):
-            self.mainframe.statusbar.SetStatusText("Position for goto is out of range: %s" % position)
+            self.setStatusText("Position for goto is out of range: %s" % position)
             return
         self.mainframe.dtlist.Deselect()
         self.mainframe.dtlist.SelectItemManual(position)
         self.mainframe.dtlist.EnsureVisible(position)
         self.mainframe.dtlist.RefreshViewableItems()
-        self.mainframe.statusbar.SetStatusText("Gone to position: %s" % position)
+        self.setStatusText("Gone to position: %s" % position)
 
     @catchUnhandledExceptions
     def buttonFindReg(self, event, look_backwards=False):
@@ -343,13 +343,13 @@ class DTApp(wx.App):
             start = self.mainframe.dtlist.GetLastSelected() + 1
         i = self.drosong.find_next_instruction(start, rToFind, look_backwards=look_backwards)
         if i == -1:
-            self.mainframe.statusbar.SetStatusText("Could not find another occurrence of " + rToFind + ".")
+            self.setStatusText("Could not find another occurrence of " + rToFind + ".")
             return
         self.mainframe.dtlist.Deselect()
         self.mainframe.dtlist.SelectItemManual(i)
         self.mainframe.dtlist.EnsureVisible(i)
         self.mainframe.dtlist.RefreshViewableItems()
-        self.mainframe.statusbar.SetStatusText("Occurrence of " + rToFind + " found at position " + str(i) + ".")
+        self.setStatusText("Occurrence of " + rToFind + " found at position " + str(i) + ".")
 
     def buttonFindRegPrevious(self, event):
         self.buttonFindReg(event, look_backwards=True) # blech
@@ -363,7 +363,7 @@ class DTApp(wx.App):
             start = self.mainframe.dtlist.GetLastSelected() + 1
         i = self.drosong.find_next_instruction(start, "DALL", look_backwards=look_backwards)
         if i == -1:
-            self.mainframe.statusbar.SetStatusText("No more notes found.")
+            self.setStatusText("No more notes found.")
             return
         self.mainframe.dtlist.Deselect()
         self.mainframe.dtlist.SelectItemManual(i)
@@ -431,23 +431,26 @@ class DTApp(wx.App):
                 self.buttonPlay(event)
 
     # Other stuff
-    def __UpdateDROInfoRedo(self, args_list): # sigh
-        self.UpdateDROInfo(*args_list)
+    def __updateDROInfoRedo(self, args_list): # sigh
+        self.updateDROInfo(*args_list)
 
     #@requiresDROLoaded # not really required here
-    @dro_undo.undoable("DRO Header Changes", dro_globals.get_undo_controller, __UpdateDROInfoRedo)
-    def UpdateDROInfo(self, opl_type, ms_length):
+    @dro_undo.undoable("DRO Header Changes", dro_globals.get_undo_controller, __updateDROInfoRedo)
+    def updateDROInfo(self, opl_type, ms_length):
         original_values = [self.drosong.opl_type, self.drosong.ms_length]
         self.drosong.opl_type = opl_type
         self.drosong.ms_length = ms_length
         return original_values
 
+    def setStatusText(self, message):
+        self.mainframe.statusbar.SetStatusText(message)
 
 def start_gui_app():
     app = None
     dro_globals.g_undo_controller = dro_undo.UndoController()
     try:
         app = DTApp(0)
+        dro_globals.g_wx_app = app
         app.SetExitOnFrameDelete(True)
         app.MainLoop()
     finally:

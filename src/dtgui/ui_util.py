@@ -25,6 +25,7 @@
 import StringIO
 import traceback
 import wx
+import dro_globals
 
 gGUIIDS = {}
 
@@ -54,8 +55,11 @@ def catchUnhandledExceptions(func):
 def requiresDROLoaded(func):
     def inner_func(self, *args, **kwds):
         if self.drosong is None:
-            # A bit gross
-            self.mainframe.statusbar.SetStatusText("Please open a DRO file first.")
+            msg = "Please open a DRO file first."
+            if dro_globals.g_wx_app is not None:
+                dro_globals.g_wx_app.setStatusText(msg)
+            else:
+                print msg
             return
         else:
             func(self, *args, **kwds)

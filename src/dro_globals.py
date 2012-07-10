@@ -23,7 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-g_wx_app = None # not used, yet
+g_wx_app = None
 
 g_undo_controller = None
 def get_undo_controller():

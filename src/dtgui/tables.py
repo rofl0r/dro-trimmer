@@ -52,7 +52,8 @@ class DTSongDataList(wx.ListCtrl):
     def OnGetItemText(self, item, column):
         # Possible TODO: split the description into sub-components
         # eg for "Tremolo / Vibrato / Sustain / KSR / Frequency Multiplication Factor"
-        # (can't use bitmask because we may be disabling items)
+        # (can't use bitmask because we may be disabling items - could possibly be solved by
+        # keeping track of register changes/state when loading the song)
         if self.drosong is None:
             return ""
 

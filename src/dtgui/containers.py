@@ -29,6 +29,7 @@ try:
 except ImportError:
     win32api = None
 import wx
+import dro_globals
 import dro_util
 
 from menus import DTMainMenuBar
@@ -36,11 +37,9 @@ from tables import DTSongDataList
 from ui_util import guiID
 
 class DTMainFrame(wx.Frame):
-    def __init__(self, *args, **kwds):
+    def __init__(self, wx_app, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
-        self.parent = kwds['dtparent']
         tail_length = kwds['tail_length']
-        del kwds['dtparent']
         del kwds['tail_length']
         wx.Frame.__init__(self, *args, **kwds)
 
@@ -65,7 +64,7 @@ class DTMainFrame(wx.Frame):
 
         self.statusbar = self.CreateStatusBar()
 
-        self.dtlist = DTSongDataList(self, self.parent.drosong)
+        self.dtlist = DTSongDataList(self, wx_app.drosong)
 
         self.panel_1 = wx.Panel(self, -1)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
@@ -113,3 +112,7 @@ class DTMainFrame(wx.Frame):
 
         self.Layout()
         self.SetSize((600, 400))
+
+#class LoopAnalysisFrame(wx.Frame):
+#    def __init__(self, *args, **kwds):
+#        wx.Frame.__init__(self, *args, **kwds)
