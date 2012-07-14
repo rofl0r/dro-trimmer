@@ -186,6 +186,7 @@ class DTApp(wx.App):
         self.goto_dialog = DTDialogGoto(self, self.mainframe, len(self.drosong.data) - 1)
         self.goto_dialog.Show()
 
+    @catchUnhandledExceptions # Added by Wraithverge.
     @requiresDROLoaded
     def menuFindReg(self, event):
         if self.frdialog is not None:
@@ -398,12 +399,12 @@ class DTApp(wx.App):
         if keycode in (wx.WXK_DELETE, wx.WXK_BACK): # delete or backspace
             self.buttonDelete(None)
             event.Veto()
-        elif keycode == 44:
-            # < or , Previous note
+        elif keycode == wx.WXK_LEFT:
+            # <-- key. Previous note
             self.buttonPreviousNote(event)
             event.Veto()
-        elif keycode == 46:
-            # > or . Next note
+        elif keycode == wx.WXK_RIGHT:
+            # --> key. Next note
             self.buttonNextNote(event)
             event.Veto()
         else:

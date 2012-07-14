@@ -25,6 +25,7 @@
 import wx
 import dro_data
 import dro_globals
+import dro_util
 from containers import TextPanel
 from ui_util import guiID, errorAlert
 
@@ -35,7 +36,7 @@ class DTDialogGoto(wx.Dialog):
         wx.Dialog.__init__(self, parent, *args, **kwds)
         self.scPosition = wx.SpinCtrl(self, -1, "", min=0, max=max_pos)
         self.btnGo = wx.Button(self, guiID("BUTTON_GOTO_GO"), "Go")
-        self.btnClose = wx.Button(self, wx.ID_CANCEL, "")
+        self.btnClose = wx.Button(self, wx.ID_CANCEL, "Close")
 
         self.__set_properties()
         self.__do_layout()
@@ -52,11 +53,17 @@ class DTDialogGoto(wx.Dialog):
         # begin wxGlade: DTDialogGoto.__do_layout
         szMain = wx.BoxSizer(wx.VERTICAL)
         szButtons = wx.BoxSizer(wx.HORIZONTAL)
-        szMain.Add(self.scPosition, 0, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL, 0)
-        szButtons.Add((20, 20), 1, 0, 0)
-        szButtons.Add(self.btnGo, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM | wx.ALIGN_CENTER_HORIZONTAL, 0)
-        szButtons.Add(self.btnClose, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 0)
-        szMain.Add(szButtons, 1, wx.EXPAND, 0)
+#        szMain.Add(self.scPosition, 0, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL, 0)
+#        szButtons.Add((20, 20), 1, 0, 0)
+#        szButtons.Add(self.btnGo, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM | wx.ALIGN_CENTER_HORIZONTAL, 0)
+#        szButtons.Add(self.btnClose, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 0)
+#        szMain.Add(szButtons, 1, wx.EXPAND, 0)
+        # Layout adjusted by Wraithverge to be consistent with Find Reg layout.
+        szMain.Add(self.scPosition, 0, wx.ALL|wx.ALIGN_CENTER, 5)
+        szButtons.Add((0, 5), 0, 0, 0)
+        szButtons.Add(self.btnGo, 0, wx.ALL|wx.ALIGN_CENTER_VERTICAL, 5)
+        szButtons.Add(self.btnClose, 0, wx.ALL|wx.ALIGN_CENTER_VERTICAL, 5)
+        szMain.Add(szButtons, 0, wx.ALL, 0)
         self.SetSizer(szMain)
         szMain.Fit(self)
         self.Layout()
@@ -132,6 +139,12 @@ class DTDialogFindReg(wx.Dialog):
 
 class DROInfoDialog ( wx.Dialog ):
     def __init__(self, parent, dro_song, *args, **kwds):
+        try:
+            config = dro_util.read_config()
+            dro_info_edit_enabled = config.getboolean("ui", "dro_info_edit_enabled")
+        except Exception, e:
+            print 'Could not read the value for "dro_info_edit_enabled" in "drotrim.ini"; defaulting to false.'
+            dro_info_edit_enabled = False
         # begin wxGlade: MyDialog.__init__
         self.parent = parent
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
@@ -146,16 +159,18 @@ class DROInfoDialog ( wx.Dialog ):
         self.lLengthMsCalc = wx.StaticText(self, -1, "Calculated Length (MS)")
         calculated_delay = dro_data.DROTotalDelayCalculator().sum_delay(dro_song)
         self.tcLengthMsCalc = wx.TextCtrl(self, -1, str(calculated_delay))
-        self.bEdit = wx.Button(self, guiID("BUTTON_DROINFO_EDIT"), "Edit")
+        if dro_info_edit_enabled:
+            self.bEdit = wx.Button(self, guiID("BUTTON_DROINFO_EDIT"), "Edit")
         self.bClose = wx.Button(self, wx.ID_CANCEL, "Close")
 
         self.__set_properties()
-        self.__do_layout()
+        self.__do_layout(dro_info_edit_enabled)
         # end wxGlade
 
         self.dro_song = dro_song
         self.edit_mode = False
-        wx.EVT_BUTTON(self, guiID("BUTTON_DROINFO_EDIT"), self.EditSaveButtonEvent)
+        if dro_info_edit_enabled:
+            wx.EVT_BUTTON(self, guiID("BUTTON_DROINFO_EDIT"), self.EditSaveButtonEvent)
 
     def __set_properties(self):
         # begin wxGlade: MyDialog.__set_properties
@@ -168,7 +183,7 @@ class DROInfoDialog ( wx.Dialog ):
         self.bClose.SetDefault()
         # end wxGlade
 
-    def __do_layout(self):
+    def __do_layout(self, dro_info_edit_enabled):
         # begin wxGlade: MyDialog.__do_layout
         sMain = wx.GridSizer(5, 2, 0, 0)
         sButtons = wx.BoxSizer(wx.HORIZONTAL)
@@ -181,7 +196,10 @@ class DROInfoDialog ( wx.Dialog ):
         sMain.Add(self.lLengthMsCalc, 0, wx.ALL, 5)
         sMain.Add(self.tcLengthMsCalc, 0, wx.ALL, 5)
         sMain.Add((0, 0), 1, wx.EXPAND, 5)
-        sButtons.Add(self.bEdit, 1, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 5)
+        if dro_info_edit_enabled:
+            sButtons.Add(self.bEdit, 1, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 5)
+        else:
+            sButtons.Add((0, 0), 1, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 5)
         sButtons.Add(self.bClose, 1, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 5)
         sMain.Add(sButtons, 1, wx.EXPAND | wx.ALIGN_RIGHT, 5)
         self.SetSizer(sMain)
@@ -194,22 +212,12 @@ class DROInfoDialog ( wx.Dialog ):
             self.StartEditMode(event)
 
     def StartEditMode(self, event):
-#        md = wx.MessageDialog(self,
-#            ("Editing this information is not recommended, and is only required for broken DRO files. "
-#             "I would try ripping the song again, instead. "
-#             "Don't alter anything here if you don't have to!\n"
-#             "Proceed?"),
-#            style=wx.OK|wx.CANCEL|wx.ICON_EXCLAMATION)
-#        result = md.ShowModal()
-#        md.Destroy()
-#        if result == wx.ID_OK:
-            dro_globals.g_wx_app.setStatusText("Edit mode enabled, be careful!")
-            self.edit_mode = True
-            #self.tcDROVersion.Enable()
-            self.cHardwareType.Enable()
-            self.tcLengthMs.Enable()
-            self.bEdit.SetLabel("Save")
-            self.bClose.SetLabel("Cancel")
+        dro_globals.g_wx_app.setStatusText("DRO Info edit mode enabled.")
+        self.edit_mode = True
+        self.cHardwareType.Enable()
+        self.tcLengthMs.Enable()
+        self.bEdit.SetLabel("Save")
+        self.bClose.SetLabel("Cancel")
 
     def SaveChanges(self, event):
         try:
