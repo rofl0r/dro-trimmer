@@ -238,7 +238,10 @@ class DROInfoDialog ( wx.Dialog ):
 
 class LoopAnalysisDialog(wx.Dialog):
     def __init__(self, wx_app, loop_analyzer, *args, **kwds):
-        wx.Dialog.__init__(self, *args, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX, **kwds)
+        wx.Dialog.__init__(self, *args,
+                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER |
+                                 wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX | wx.THICK_FRAME,
+                           **kwds)
         self.notebook = wx.Notebook(self, size=(400, 300))
 
         # Create buttons
