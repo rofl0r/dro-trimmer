@@ -596,7 +596,11 @@ class DROLoopAnalyzer(object):
         else:
             interesting_sections = sections[0:num_to_display]
         sections_string = "\n".join(str(sec) for sec in interesting_sections)
-        result = "Interesting sections:\n%s" % (sections_string,)
+        result = "Interesting sections (by size):\n%s" % (sections_string,)
+        result += "\n\n"
+        interesting_sections.sort(key=lambda m: m.start, reverse=True)
+        sections_string = "\n".join(str(sec) for sec in interesting_sections)
+        result += "Interesting sections (by position):\n%s" % (sections_string,)
         return self.AnalysisResult("Longest instruction blocks", result)
 
     def analyze_seqeunce_matcher(self, dro_song):
