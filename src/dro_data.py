@@ -345,7 +345,7 @@ class DROLoopAnalyzer(object):
         If the current value matches the end value, compare all
         values preceding the current value against all values
         preceding the end value.
-        (Probably a naive approach)
+        (This is a fairly naive approach.)
         Example:
           [0, 1, 2, 3, 1, 2]
                        ^  ^
@@ -559,7 +559,7 @@ class DROLoopAnalyzer(object):
 
     def analyze_longest_instruction_blocks(self, dro_song):
         """
-        Finds the the 10 longest blocks of instructions, separated by delay instructions.
+        Finds the the 15 longest blocks of instructions, separated by delay instructions.
         Excludes the first block at the beginning of the song (which is usually just
         register initialization, in DRO 2).
         """
