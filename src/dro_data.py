@@ -325,7 +325,7 @@ class DROLoopAnalyzer(object):
     def __init__(self):
         self.analysis_methods = [
             self.analyze_earliest_end_match,
-            self.analyze_earliest_end_delay_match,
+            self.analyze_earliest_end_delay_and_note_match,
             self.analyze_latest_start_match,
             self.analyze_longest_instruction_blocks,
             self.analyze_seqeunce_matcher
@@ -438,7 +438,7 @@ class DROLoopAnalyzer(object):
         result = self.__do_backward_search_analysis(dro_data, original_indexes)
         return self.AnalysisResult("Earliest match to end", result)
 
-    def analyze_earliest_end_delay_match(self, dro_song):
+    def analyze_earliest_end_delay_and_note_match(self, dro_song):
         """
         Goes through the data backwards. Finds the "earliest" sequence of instructions that
         matches the sequence of instructions at the end of the song. Only looks at
@@ -450,11 +450,13 @@ class DROLoopAnalyzer(object):
         # data.
         original_indexes = []
         dro_data = []
+        MIN_DELAY_TO_INCLUDE = 2 # skip delays of 1 ms
         for i, datum in enumerate(dro_song.data):
             reg = datum[0]
             should_include = False
             if reg in (dro_song.short_delay_code,
-                       dro_song.long_delay_code):
+                       dro_song.long_delay_code) and \
+                datum[1] >= MIN_DELAY_TO_INCLUDE:
                 should_include = True
             else:
                 if dro_song.file_version == DRO_FILE_V2: # sigh
@@ -466,7 +468,7 @@ class DROLoopAnalyzer(object):
                 original_indexes.append(i)
 
         result = self.__do_backward_search_analysis(dro_data, original_indexes)
-        return self.AnalysisResult("Earliest match to end (delays only)", result)
+        return self.AnalysisResult("Earliest match to end (delays and note on/off only)", result)
 
     def analyze_latest_start_match(self, dro_song):
         """
