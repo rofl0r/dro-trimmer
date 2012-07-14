@@ -455,9 +455,9 @@ class DROLoopAnalyzer(object):
             reg = datum[0]
             should_include = False
             if reg in (dro_song.short_delay_code,
-                       dro_song.long_delay_code) and \
-                datum[1] >= MIN_DELAY_TO_INCLUDE:
-                should_include = True
+                       dro_song.long_delay_code):
+                if datum[1] >= MIN_DELAY_TO_INCLUDE:
+                    should_include = True
             else:
                 if dro_song.file_version == DRO_FILE_V2: # sigh
                     reg = dro_song.codemap[reg & 0x7F]
@@ -634,7 +634,10 @@ class DROLoopAnalyzer(object):
         #  suitable for trimming.
 
         # If first instruction is note off, alert user
-        if dro_data[result[0]][0] in range(0xB0, 0xB9):
+        cmd = dro_data[result[0]][0]
+        if dro_song.file_version == DRO_FILE_V2 and cmd not in (dro_song.short_delay_code, dro_song.long_delay_code):
+            cmd = dro_song.codemap[cmd & 0x7F]
+        if cmd in range(0xB0, 0xB9):
             result_str += ("Note: The first instruction in the matched block was a key on/off. There may be " +
                   "a more appropriate block earlier in the song.\n")
 
