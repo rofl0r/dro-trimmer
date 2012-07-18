@@ -246,7 +246,7 @@ register_bitmask_lookup = {
     ),
     "Key On / Octave / Frequency (high 2 bits)" : (
         RegisterBitmask("Key On", int('00100000', 2)),
-        RegisterBitmask("Block Number", int('00011100', 2)),
+        RegisterBitmask("Octave", int('00011100', 2)),
         RegisterBitmask("Frequency (high 2 bits)", int('00000011', 2)),
     ),
     "AM depth / Vibrato depth / Percussion control" : (
