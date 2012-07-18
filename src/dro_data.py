@@ -743,12 +743,11 @@ class DRODetailedRegisterAnalyzer(object):
         except Exception:
             return "Unknown register: %s" % (reg,)
 
-        bitmasks = regdata.register_bitmask_lookup[register_description]
         reg_and_bank = (bank << 8) | reg
-        print reg_and_bank
         old_val = self.current_state[reg_and_bank]
 
         changed_desc = []
+        bitmasks = regdata.register_bitmask_lookup[register_description]
         for bm in bitmasks:
             # Output the description for this bitmask, if the old value is None (start of the song), or the
             #  value has changed.
