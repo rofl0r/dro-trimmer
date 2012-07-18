@@ -40,16 +40,18 @@ class DTSongDataList(wx.ListCtrl):
 
     def CreateColumns(self):
         self.InsertColumn(0, "Pos.")
-        self.InsertColumn(1, "Reg.")
-        self.InsertColumn(2, "Value")
-        self.InsertColumn(3, "Description")
-        self.InsertColumn(4, "Description (all register options)")
+        self.InsertColumn(1, "Bank")
+        self.InsertColumn(2, "Reg.")
+        self.InsertColumn(3, "Value")
+        self.InsertColumn(4, "Description")
+        self.InsertColumn(5, "Description (all register options)")
         parent = self.GetParent()
         self.SetColumnWidth(0, parent.GetCharWidth() * 10)
-        self.SetColumnWidth(1, parent.GetCharWidth() * 8)
-        self.SetColumnWidth(2, parent.GetCharWidth() * 16)
-        self.SetColumnWidth(3, parent.GetCharWidth() * 70)
+        self.SetColumnWidth(1, parent.GetCharWidth() * 7)
+        self.SetColumnWidth(2, parent.GetCharWidth() * 8)
+        self.SetColumnWidth(3, parent.GetCharWidth() * 13)
         self.SetColumnWidth(4, parent.GetCharWidth() * 70)
+        self.SetColumnWidth(5, parent.GetCharWidth() * 70)
 
     def OnGetItemText(self, item, column):
         # Possible TODO: split the description into sub-components
@@ -61,17 +63,20 @@ class DTSongDataList(wx.ListCtrl):
 
         if column == 0:
             return str(item).zfill(4) + ">"
-        # Register
+        # Bank
         elif column == 1:
+            return self.drosong.get_bank_description(item)
+        # Register
+        elif column == 2:
             return self.drosong.get_register_display(item)
         # Value
-        elif column == 2:
+        elif column == 3:
             return self.drosong.get_value_display(item)
         # Description
-        elif column == 3:
-            return self.drosong.get_detailed_register_description(item)
-        # Description (register)
         elif column == 4:
+            return self.drosong.get_detailed_register_description(item)
+        # Description (all register options)
+        elif column == 5:
             return self.drosong.get_instruction_description(item)
 
     def GetItemCount(self):

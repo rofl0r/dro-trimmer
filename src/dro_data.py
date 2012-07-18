@@ -186,7 +186,14 @@ class DROSong(object):
             item >= len(self.detailed_register_descriptions)):
             return "(not available)"
         else:
-            return self.detailed_register_descriptions[item]
+            return self.detailed_register_descriptions[item][1]
+
+    def get_bank_description(self, item):
+        if (self.detailed_register_descriptions is None or
+            item >= len(self.detailed_register_descriptions)):
+            return "(N/A)"
+        else:
+            return self.detailed_register_descriptions[item][0]
 
     def generate_detailed_register_descriptions(self):
         self.detailed_register_descriptions = DRODetailedRegisterAnalyzer().analyze_dro(self)
@@ -253,7 +260,7 @@ class DROSongV2(DROSong):
         elif reg == self.long_delay_code:
             return "DLYL"
         else:
-            return '0x%03X' % ((reg & 0x80) << 1 | self.codemap[reg & 0x7F])
+            return '0x%02X' % (self.codemap[reg & 0x7F])
 
     def get_value_display(self, item):
         reg, val = self.data[item]
@@ -709,10 +716,11 @@ class DRODetailedRegisterAnalyzer(object):
             cmd = cmd_and_val[0]
             if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
                 val = cmd_and_val[1]
-                self.state_descriptions.append("Delay: %sms" % val)
+                self.state_descriptions.append((self.current_bank, "Delay: %s ms" % (val,)))
                 continue
             elif cmd in (0x02, 0x03):
                 self.current_bank = cmd - 0x02
+                self.state_descriptions.append((self.current_bank, "Bank switch: %s" % (self.current_bank,)))
                 continue
             elif cmd == 0x04:
                 reg = cmd_and_val[1]
@@ -721,18 +729,20 @@ class DRODetailedRegisterAnalyzer(object):
                 reg = cmd_and_val[0]
                 val = cmd_and_val[1]
 
-            self.state_descriptions.append(self.__analyze_and_update_register(self.current_bank, reg, val, opl_type))
+            self.state_descriptions.append((self.current_bank,
+                                            self.__analyze_and_update_register(self.current_bank, reg, val, opl_type)))
 
     def __analyze_dro2(self, dro_song):
         opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
         for cmd, val in dro_song.data:
             if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
-                self.state_descriptions.append("Delay: %sms" % val)
+                self.state_descriptions.append((self.current_bank, "Delay: %s ms" % val))
                 continue
             else:
                 self.current_bank = (cmd & 0x80) >> 7
                 reg = dro_song.codemap[cmd & 0x7F]
-            self.state_descriptions.append(self.__analyze_and_update_register(self.current_bank, reg, val, opl_type))
+            self.state_descriptions.append((self.current_bank,
+                                            self.__analyze_and_update_register(self.current_bank, reg, val, opl_type)))
 
     def __analyze_and_update_register(self, bank, reg, val, opl_type):
         try:

@@ -57,8 +57,13 @@ class DTApp(wx.App):
         self.frdialog = None # Find Register dialog
         self.loop_analysis_dialog = None # Loop Analysis Dialog
 
-        self.mainframe = DTMainFrame(self, None, -1, "DRO Trimmer %s" % (dro_globals.g_app_version,), size=wx.Size(640, 480),
-            tail_length=self.tail_length)
+        self.mainframe = DTMainFrame(self,
+                                     None,
+                                     -1,
+                                     "DRO Trimmer %s" % (dro_globals.g_app_version,),
+                                     size=wx.Size(640, 480),
+                                     tail_length=self.tail_length,
+                                     dro_player_enabled=self.dro_player is not None)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
 
@@ -444,7 +449,7 @@ class DTApp(wx.App):
             self.menuRedo(event)
         elif keycode == 90 and event.CmdDown(): # CTRL-Z
             self.menuUndo(event)
-        elif keycode == 32:
+        elif self.dro_player is not None and keycode == 32:
             self.togglePlayback(event)
         else:
             #print keycode

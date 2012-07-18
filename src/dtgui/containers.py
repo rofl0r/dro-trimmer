@@ -41,6 +41,8 @@ class DTMainFrame(wx.Frame):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         tail_length = kwds['tail_length']
         del kwds['tail_length']
+        dro_player_enabled = kwds['dro_player_enabled']
+        del kwds['dro_player_enabled']
         wx.Frame.__init__(self, *args, **kwds)
 
         # Maximize window base on config settings (added by Wraithverge)
@@ -75,33 +77,33 @@ class DTMainFrame(wx.Frame):
         self.dtlist = DTSongDataList(self, wx_app.drosong)
         self.panel_1 = wx.Panel(self, -1)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
-        self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
-        self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
-        tail_in_seconds = tail_length / 1000.0
-        if tail_in_seconds % 1:
-            tail_str = "%.2f" % (tail_in_seconds,)
-        else:
-            tail_str = "%d" % (tail_in_seconds,)
-        self.button_play_tail = wx.Button(self.panel_1, guiID("BUTTON_PLAY_TAIL"),
-            "Play last %s second%s" % (tail_str, 's' if tail_in_seconds != 1 else ''))
+        if dro_player_enabled:
+            self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
+            self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
+            tail_in_seconds = tail_length / 1000.0
+            if tail_in_seconds % 1:
+                tail_str = "%.2f" % (tail_in_seconds,)
+            else:
+                tail_str = "%d" % (tail_in_seconds,)
+            self.button_play_tail = wx.Button(self.panel_1, guiID("BUTTON_PLAY_TAIL"),
+                "Play last %s second%s" % (tail_str, 's' if tail_in_seconds != 1 else ''))
 
         self.__set_properties()
-        self.__do_layout()
+        self.__do_layout(dro_player_enabled)
 
     def __set_properties(self):
-        #self.SetTitle("DRO Trimmer")
         self.SetMenuBar(DTMainMenuBar())
 
-    def __do_layout(self):
-        # This is a complete mess
+    def __do_layout(self, dro_player_enabled):
         grid_sizer_1 = wx.FlexGridSizer(2, 1, 0, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
 
         sizer_1 = wx.BoxSizer(wx.HORIZONTAL)
         sizer_1.Add(self.button_delete, 0, wx.FIXED_MINSIZE, 0)
-        sizer_1.Add(self.button_play, 0, wx.FIXED_MINSIZE, 0)
-        sizer_1.Add(self.button_stop, 0, wx.FIXED_MINSIZE, 0)
-        sizer_1.Add(self.button_play_tail, 0, wx.FIXED_MINSIZE, 0)
+        if dro_player_enabled:
+            sizer_1.Add(self.button_play, 0, wx.FIXED_MINSIZE, 0)
+            sizer_1.Add(self.button_stop, 0, wx.FIXED_MINSIZE, 0)
+            sizer_1.Add(self.button_play_tail, 0, wx.FIXED_MINSIZE, 0)
         self.panel_1.SetAutoLayout(1)
         self.panel_1.SetSizer(sizer_1)
         sizer_1.Fit(self.panel_1)
