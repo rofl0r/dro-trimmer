@@ -43,11 +43,13 @@ class DTSongDataList(wx.ListCtrl):
         self.InsertColumn(1, "Reg.")
         self.InsertColumn(2, "Value")
         self.InsertColumn(3, "Description")
+        self.InsertColumn(4, "Description (all register options)")
         parent = self.GetParent()
         self.SetColumnWidth(0, parent.GetCharWidth() * 10)
         self.SetColumnWidth(1, parent.GetCharWidth() * 8)
         self.SetColumnWidth(2, parent.GetCharWidth() * 16)
         self.SetColumnWidth(3, parent.GetCharWidth() * 70)
+        self.SetColumnWidth(4, parent.GetCharWidth() * 70)
 
     def OnGetItemText(self, item, column):
         # Possible TODO: split the description into sub-components
@@ -67,6 +69,9 @@ class DTSongDataList(wx.ListCtrl):
             return self.drosong.get_value_display(item)
         # Description
         elif column == 3:
+            return self.drosong.get_detailed_register_description(item)
+        # Description (register)
+        elif column == 4:
             return self.drosong.get_instruction_description(item)
 
     def GetItemCount(self):

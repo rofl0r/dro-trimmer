@@ -120,11 +120,16 @@ class DTApp(wx.App):
             delay_mismatch_analyzer.analyze_dro(self.drosong)
             delay_mismatch = delay_mismatch_analyzer.result
 
+            # Load detailed register analysis.
+            self.drosong.generate_detailed_register_descriptions()
+
             if self.dro_player is not None:
                 self.dro_player.stop()
                 self.dro_player.load_song(self.drosong)
+
             self.mainframe.dtlist.CreateList(self.drosong)
             self.setStatusText("Successfully opened " + os.path.basename(filename) + ".")
+
             # File was auto-trimmed, notify user
             dats = "T" # despite auto-trimming string
             if auto_trimmed:
@@ -146,9 +151,11 @@ class DTApp(wx.App):
                     'DRO timing mismatch',
                     style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
-                # Reset undo history when a new file is opened.
+
+            # Reset undo history when a new file is opened.
             dro_globals.get_undo_controller().reset()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+
             # Reset the Goto dialog, if it exists.
             if self.goto_dialog is not None:
                 self.goto_dialog.reset(len(self.drosong.data) - 1)
@@ -207,6 +214,7 @@ class DTApp(wx.App):
     def menuDelete(self, event):
         self.buttonDelete(None)
 
+    @catchUnhandledExceptions
     @requiresDROLoaded
     def menuDROInfo(self, event):
         dro_info_dialog = DROInfoDialog(self.mainframe, self.drosong)
@@ -300,6 +308,12 @@ class DTApp(wx.App):
             # Might be better to investigate triggering an event, or using
             # observer/listener pattern.)
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            # Also need to update the detailed register descriptions, since deleting an instruction will
+            #  change the state of the chip after the deleted instructions.
+            #  Unfortunately we need to update the whole lot. Could speed things up by storing "snapshots" of the
+            #  chip state and only refreshing the descriptions, from the nearest snapshot before the first deleted
+            #  instruction onwards.
+            self.drosong.generate_detailed_register_descriptions()
 
     @requiresDROLoaded
     def buttonPlay(self, event):

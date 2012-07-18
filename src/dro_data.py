@@ -27,6 +27,7 @@ import itertools
 import difflib
 import dro_undo
 import dro_globals
+from dro_util import DROTrimmerException
 import regdata
 
 DRO_FILE_V1 = 1
@@ -49,6 +50,7 @@ class DROSong(object):
         self.opl_type = opl_type
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
+        self.detailed_register_descriptions = None
 
     def getLengthMS(self):
         return self.ms_length
@@ -103,6 +105,8 @@ class DROSong(object):
             self.data.insert(i, reg_and_val) # inefficient but I'm mega-lazy.
             if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
                 self.ms_length += reg_and_val[1]
+        # Also need to update our register descriptions, since the data has changed.
+        self.generate_detailed_register_descriptions()
 
     @dro_undo.undoable("Delete Instruction(s)", dro_globals.get_undo_controller, __insert_instructions)
     def delete_instructions(self, index_list):
@@ -121,6 +125,8 @@ class DROSong(object):
             else:
                 new_data.append(reg_and_val)
         self.data = new_data
+        # Also need to update our register descriptions, since the data has changed.
+        self.generate_detailed_register_descriptions()
         return deleted_data
 
     def get_register_display(self, item):
@@ -174,6 +180,16 @@ class DROSong(object):
             except KeyError:
                 reg_desc = "(unknown)"
             return reg_desc
+
+    def get_detailed_register_description(self, item):
+        if (self.detailed_register_descriptions is None or
+            item >= len(self.detailed_register_descriptions)):
+            return "(not available)"
+        else:
+            return self.detailed_register_descriptions[item]
+
+    def generate_detailed_register_descriptions(self):
+        self.detailed_register_descriptions = DRODetailedRegisterAnalyzer().analyze_dro(self)
 
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
@@ -304,6 +320,7 @@ class DROTotalDelayMismatchAnalyzer(object):
         calc_delay = DROTotalDelayCalculator().sum_delay(dro_song)
         self.result = calc_delay != dro_song.ms_length
 
+
 class DROLoopAnalyzer(object):
     class Match(object):
         def __init__(self, start=None, end=None, length=0):
@@ -423,8 +440,10 @@ class DROLoopAnalyzer(object):
                 end=original_indexes[end_match.end],
                 length=original_indexes[end_match.end] - original_indexes[end_match.start] + 1
             )
-            result += "Loop section 1: start=%s, end=%s, length=%s.\n" % (longest_match.start, longest_match.end, longest_match.length)
-            result += "Loop section 2: start=%s, end=%s, length=%s.\n" % (end_match.start, end_match.end, end_match.length)
+            result += ("Loop section 1: start=%s, end=%s, length=%s.\n" %
+                       (longest_match.start, longest_match.end, longest_match.length))
+            result += ("Loop section 2: start=%s, end=%s, length=%s.\n" %
+                       (end_match.start, end_match.end, end_match.length))
 
         return result
 
@@ -494,10 +513,7 @@ class DROLoopAnalyzer(object):
             if dro_song.file_version == DRO_FILE_V1:
                 if reg < 0x05: # skip non-register commands
                     continue
-            if dro_song.file_version == DRO_FILE_V2:
-                if reg in (dro_song.short_delay_code, # skip delays
-                           dro_song.long_delay_code):
-                    continue
+            elif dro_song.file_version == DRO_FILE_V2:
                 reg = dro_song.codemap[reg & 0x7F]
             if reg in range(0xB0, 0xB9):
                 note_on_found = True
@@ -552,8 +568,10 @@ class DROLoopAnalyzer(object):
         if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
             result += "No match found. I'm sorry.\n"
         else:
-            result += "Loop section 1: start=%s, end=%s, length=%s.\n" % (start_match.start, start_match.end, start_match.length)
-            result += "Loop section 2: start=%s, end=%s, length=%s.\n" % (longest_match.start, longest_match.end, longest_match.length)
+            result += ("Loop section 1: start=%s, end=%s, length=%s.\n" %
+                       (start_match.start, start_match.end, start_match.length))
+            result += ("Loop section 2: start=%s, end=%s, length=%s.\n" %
+                       (longest_match.start, longest_match.end, longest_match.length))
 
         return self.AnalysisResult("Latest match to start", result)
 
@@ -592,7 +610,7 @@ class DROLoopAnalyzer(object):
         sections.sort(key=lambda m: m.length, reverse=True)
         num_to_display = min(len(sections), 15)
         if len(sections) > 1 and sections[0].start == 0:
-            interesting_sections = sections[1:num_to_display + 1] # skip the first one, since it's the start of the song.
+            interesting_sections = sections[1:num_to_display + 1] # skip the first one since it's the start of the song
         else:
             interesting_sections = sections[0:num_to_display]
         sections_string = "\n".join(str(sec) for sec in interesting_sections)
@@ -653,3 +671,90 @@ class DROLoopAnalyzer(object):
 
         return self.AnalysisResult("Halved sequence match", result_str)
 
+
+class DRODetailedRegisterAnalyzer(object):
+    # TODO: output channels and banks in the table.
+    OPL_TYPE_OPL2, OPL_TYPE_DUAL_OPL2, OPL_TYPE_OPL3 = range(3)
+
+    def __init__(self):
+        self.state_descriptions = []
+        self.current_bank = 0
+        self.current_state = None
+        self.OPL_TYPE_DRO1_MAP = [
+            self.OPL_TYPE_OPL2,
+            self.OPL_TYPE_OPL3,
+            self.OPL_TYPE_DUAL_OPL2
+        ]
+        self.OPL_TYPE_DRO2_MAP = [
+            self.OPL_TYPE_OPL2,
+            self.OPL_TYPE_DUAL_OPL2,
+            self.OPL_TYPE_OPL3
+        ] # a bit pointless, but added for consistency.
+
+    def analyze_dro(self, dro_song):
+        self.state_descriptions = []
+        self.current_state = [None] * 0x1FF
+        if dro_song.file_version == DRO_FILE_V1:
+            self.__analyze_dro1(dro_song)
+        elif dro_song.file_version == DRO_FILE_V2:
+            self.__analyze_dro2(dro_song)
+        else:
+            raise (DROTrimmerException("Unrecognised DRO version: %s. Cannot perform state analysis." %
+                                       (dro_song.file_version,)))
+        return self.state_descriptions
+
+    def __analyze_dro1(self, dro_song):
+        opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
+        for cmd_and_val in dro_song.data:
+            cmd = cmd_and_val[0]
+            if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
+                val = cmd_and_val[1]
+                self.state_descriptions.append("Delay: %sms" % val)
+                continue
+            elif cmd in (0x02, 0x03):
+                self.current_bank = cmd - 0x02
+                continue
+            elif cmd == 0x04:
+                reg = cmd_and_val[1]
+                val = cmd_and_val[2]
+            else:
+                reg = cmd_and_val[0]
+                val = cmd_and_val[1]
+
+            self.state_descriptions.append(self.__analyze_and_update_register(self.current_bank, reg, val, opl_type))
+
+    def __analyze_dro2(self, dro_song):
+        opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
+        for cmd, val in dro_song.data:
+            if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
+                self.state_descriptions.append("Delay: %sms" % val)
+                continue
+            else:
+                self.current_bank = (cmd & 0x80) >> 7
+                reg = dro_song.codemap[cmd & 0x7F]
+            self.state_descriptions.append(self.__analyze_and_update_register(self.current_bank, reg, val, opl_type))
+
+    def __analyze_and_update_register(self, bank, reg, val, opl_type):
+        try:
+            if bank and regdata.registers.has_key(0x100 | reg):
+                register_description = regdata.registers[0x100 | reg]
+            else:
+                register_description = regdata.registers[reg]
+        except Exception:
+            return "Unknown register: %s" % (reg,)
+
+        bitmasks = regdata.register_bitmask_lookup[register_description]
+        reg_and_bank = (bank << 8) | reg
+        print reg_and_bank
+        old_val = self.current_state[reg_and_bank]
+
+        changed_desc = []
+        for bm in bitmasks:
+            # Output the description for this bitmask, if the old value is None (start of the song), or the
+            #  value has changed.
+            if old_val is None or (bm.mask & old_val) ^ (bm.mask & val):
+                changed_desc.append(bm.description)
+
+        self.current_state[reg_and_bank] = val
+
+        return ' / '.join(changed_desc) if len(changed_desc) else '(no changes)'
