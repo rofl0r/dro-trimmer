@@ -237,8 +237,9 @@ class DROInfoDialog ( wx.Dialog ):
 
 
 class LoopAnalysisDialog(wx.Dialog):
-    def __init__(self, wx_app, loop_analyzer, **kwds):
+    def __init__(self, wx_app, loop_analyzer, parent,**kwds):
         wx.Dialog.__init__(self,
+                           parent,
                            style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER |
                                  wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX | wx.THICK_FRAME,
                            **kwds)
