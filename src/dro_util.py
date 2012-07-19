@@ -36,6 +36,11 @@ class DROTrimmerException(Exception):
 class DROFileException(DROTrimmerException):
     pass
 
+class StructFromKeywords(object):
+    def __init__(self, **kwds):
+        for key in kwds:
+            setattr(self, key, kwds[key])
+
 def read_config():
     global __config
     if __config is None:
