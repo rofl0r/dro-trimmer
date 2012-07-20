@@ -93,6 +93,7 @@ class DTMainFrame(wx.Frame):
 
     def __set_properties(self):
         self.SetMenuBar(DTMainMenuBar())
+        self.statusbar.SetFieldsCount(2)
 
     def __do_layout(self, dro_player_enabled):
         grid_sizer_1 = wx.FlexGridSizer(2, 1, 0, 0)
@@ -118,6 +119,8 @@ class DTMainFrame(wx.Frame):
 
         grid_sizer_1.AddGrowableCol(0, self.dtlist.GetBestSize().width)
         grid_sizer_1.AddGrowableRow(0, 90)
+
+        self.statusbar.SetStatusWidths([-2, -1])
 
         self.Layout()
         self.SetSize((600, 400))

@@ -100,6 +100,9 @@ class DTApp(wx.App):
         wx.EVT_KEY_DOWN(self, self.keyListener)
         wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListenerForList)
 
+        dro_globals.custom_event_manager().bind_event("DETAILED_REG_ANALYSIS_STARTED",
+                    self,
+                    self.startDetailedRegisterAnalysis)
         dro_globals.custom_event_manager().bind_event("DETAILED_REG_ANALYSIS_DONE",
             self,
             self.finishDetailedRegisterAnalysis)
@@ -142,7 +145,7 @@ class DTApp(wx.App):
             # This isn't quite right - will cause problems if you open another song right afterwards, you'll have
             #  two analysis threads running.
 #            detailed_register_analyzer = dro_data.DRODetailedRegisterAnalyzer()
-#            detailed_register_analyzer_thread = dro_data.AnalyzerThread(detailed_register_analyzer, self.drosong)
+#            detailed_register_analyzer_thread = dro_data.AnalyzerThread(0.5, detailed_register_analyzer, self.drosong)
 #            self.worker_threads.append(detailed_register_analyzer_thread)
 #            detailed_register_analyzer_thread.start()
 
@@ -498,12 +501,16 @@ class DTApp(wx.App):
         self.drosong.ms_length = ms_length
         return original_values
 
-    def setStatusText(self, message):
-        self.mainframe.statusbar.SetStatusText(message)
+    def setStatusText(self, message, section=0):
+        self.mainframe.statusbar.SetStatusText(message, section)
+
+    def startDetailedRegisterAnalysis(self, event):
+        self.setStatusText("Analyzing registers....", section=1)
 
     def finishDetailedRegisterAnalysis(self, event):
         self.drosong.detailed_register_descriptions = event.register_descriptions
         self.mainframe.dtlist.RefreshViewableItems()
+        self.setStatusText("", section=1)
 
     def workerThreadFinished(self, event):
         try:

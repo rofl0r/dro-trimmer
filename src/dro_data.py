@@ -200,9 +200,12 @@ class DROSong(object):
     def generate_detailed_register_descriptions(self):
         if self.analyzer_thread is not None:
             self.analyzer_thread.stop()
+            #print self.analyzer_thread.isAlive()
         self.detailed_register_descriptions = None
         detailed_register_analyzer = DRODetailedRegisterAnalyzer()
-        detailed_register_analyzer_thread = AnalyzerThread(detailed_register_analyzer, self)
+        # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
+        # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
+        detailed_register_analyzer_thread = AnalyzerThread(0.1, detailed_register_analyzer, self)
         detailed_register_analyzer_thread.start()
         self.analyzer_thread = detailed_register_analyzer_thread
         # TODO: proper thread management.
@@ -713,6 +716,7 @@ class DRODetailedRegisterAnalyzer(object):
         self._stop.set()
 
     def analyze_dro(self, dro_song):
+        dro_globals.custom_event_manager().trigger_event("DETAILED_REG_ANALYSIS_STARTED")
         self.state_descriptions = []
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
@@ -790,14 +794,17 @@ class DRODetailedRegisterAnalyzer(object):
 
 
 class AnalyzerThread(threading.Thread):
-    def __init__(self, analyzer, *analyzer_args):
+    def __init__(self, delay, analyzer, *analyzer_args):
         threading.Thread.__init__(self)
         self.analyzer = analyzer
         self.analyzer_args = analyzer_args
+        self.delay = delay
         self._stop = threading.Event()
 
     def run(self):
-        self.analyzer.analyze_dro(*self.analyzer_args)
+        self._stop.wait(self.delay)
+        if not self._stop.isSet():
+            self.analyzer.analyze_dro(*self.analyzer_args)
         #dro_globals.custom_event_manager().trigger_event("WORKER_THREAD_FINISHED", thread=self) # hm, not so good
 
     def stop(self):
