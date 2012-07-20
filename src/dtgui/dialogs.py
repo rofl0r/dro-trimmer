@@ -47,17 +47,14 @@ class DTDialogGoto(wx.Dialog):
     def __set_properties(self):
         # begin wxGlade: DTDialogGoto.__set_properties
         self.SetTitle("Goto Position")
+        self.btnGo.SetDefault()
+        self.scPosition.SetValueString("")
         # end wxGlade
 
     def __do_layout(self):
         # begin wxGlade: DTDialogGoto.__do_layout
         szMain = wx.BoxSizer(wx.VERTICAL)
         szButtons = wx.BoxSizer(wx.HORIZONTAL)
-#        szMain.Add(self.scPosition, 0, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL, 0)
-#        szButtons.Add((20, 20), 1, 0, 0)
-#        szButtons.Add(self.btnGo, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM | wx.ALIGN_CENTER_HORIZONTAL, 0)
-#        szButtons.Add(self.btnClose, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM, 0)
-#        szMain.Add(szButtons, 1, wx.EXPAND, 0)
         # Layout adjusted by Wraithverge to be consistent with Find Reg layout.
         szMain.Add(self.scPosition, 0, wx.ALL|wx.ALIGN_CENTER, 5)
         szButtons.Add((0, 5), 0, 0, 0)
