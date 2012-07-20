@@ -68,6 +68,7 @@ class DTDialogGoto(wx.Dialog):
 
     def reset(self, max_pos):
         self.scPosition.SetValue(0)
+        self.scPosition.SetValueString("")
         self.scPosition.SetRange(0, max_pos)
 
 # end of class DTDialogGoto
