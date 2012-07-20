@@ -23,10 +23,12 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import os.path
+import threading
 import wx
 import dro_data
-import dro_io
+import dro_event
 import dro_globals
+import dro_io
 try:
     import dro_player
 except ImportError:
@@ -39,6 +41,8 @@ from ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoad
 
 class DTApp(wx.App):
     def OnInit(self):
+        self.worker_threads = []
+
         self.drosong = None
         # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
         #  still make use of the editor.
@@ -96,6 +100,14 @@ class DTApp(wx.App):
         wx.EVT_KEY_DOWN(self, self.keyListener)
         wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListenerForList)
 
+        dro_globals.custom_event_manager().bind_event("DETAILED_REG_ANALYSIS_DONE",
+            self,
+            self.finishDetailedRegisterAnalysis)
+
+        dro_globals.custom_event_manager().bind_event("WORKER_THREAD_FINISHED",
+                    self,
+                    self.workerThreadFinished)
+
     # ____________________
     # Start Menu Event Handlers
     @catchUnhandledExceptions
@@ -127,6 +139,12 @@ class DTApp(wx.App):
 
             # Load detailed register analysis.
             self.drosong.generate_detailed_register_descriptions()
+            # This isn't quite right - will cause problems if you open another song right afterwards, you'll have
+            #  two analysis threads running.
+#            detailed_register_analyzer = dro_data.DRODetailedRegisterAnalyzer()
+#            detailed_register_analyzer_thread = dro_data.AnalyzerThread(detailed_register_analyzer, self.drosong)
+#            self.worker_threads.append(detailed_register_analyzer_thread)
+#            detailed_register_analyzer_thread.start()
 
             if self.dro_player is not None:
                 self.dro_player.stop()
@@ -318,7 +336,7 @@ class DTApp(wx.App):
             #  Unfortunately we need to update the whole lot. Could speed things up by storing "snapshots" of the
             #  chip state and only refreshing the descriptions, from the nearest snapshot before the first deleted
             #  instruction onwards.
-            self.drosong.generate_detailed_register_descriptions()
+            #self.drosong.generate_detailed_register_descriptions() # handled in the drosong object's delete method.
 
     @requiresDROLoaded
     def buttonPlay(self, event):
@@ -449,7 +467,7 @@ class DTApp(wx.App):
             self.menuRedo(event)
         elif keycode == 90 and event.CmdDown(): # CTRL-Z
             self.menuUndo(event)
-        elif self.dro_player is not None and keycode == 32:
+        elif self.dro_player is not None and keycode == 32: # Spacebar
             self.togglePlayback(event)
         else:
             #print keycode
@@ -483,9 +501,21 @@ class DTApp(wx.App):
     def setStatusText(self, message):
         self.mainframe.statusbar.SetStatusText(message)
 
+    def finishDetailedRegisterAnalysis(self, event):
+        self.drosong.detailed_register_descriptions = event.register_descriptions
+        self.mainframe.dtlist.RefreshViewableItems()
+
+    def workerThreadFinished(self, event):
+        try:
+            self.worker_threads.remove(event.thread)
+        except Exception, e:
+            print "Could not remove worker thread from wx app: %s" % (e,)
+
+
 def start_gui_app():
     app = None
     dro_globals.g_undo_controller = dro_undo.UndoController()
+    dro_globals.g_custom_event_manager = dro_event.CustomEventManager()
     try:
         app = DTApp(0)
         dro_globals.g_wx_app = app
@@ -495,6 +525,8 @@ def start_gui_app():
         if app is not None:
             if app.dro_player is not None:
                 app.dro_player.stop() # usually not needed, since it's handled by closeFrame
+            for wt in app.worker_threads:
+                wt.stop()
             app.Destroy()
 
 if __name__ == "__main__": start_gui_app()

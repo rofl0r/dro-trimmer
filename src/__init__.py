@@ -26,6 +26,7 @@
 
 import dro_control
 import dro_data
+import dro_events
 import dro_globals
 import dro_io
 import dro_player

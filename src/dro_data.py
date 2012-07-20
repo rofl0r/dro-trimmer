@@ -23,10 +23,11 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-import itertools
 import difflib
-import dro_undo
+import itertools
+import threading
 import dro_globals
+import dro_undo
 from dro_util import DROTrimmerException
 import regdata
 
@@ -51,6 +52,7 @@ class DROSong(object):
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
         self.detailed_register_descriptions = None
+        self.analyzer_thread = None
 
     def getLengthMS(self):
         return self.ms_length
@@ -196,7 +198,15 @@ class DROSong(object):
             return self.detailed_register_descriptions[item][0]
 
     def generate_detailed_register_descriptions(self):
-        self.detailed_register_descriptions = DRODetailedRegisterAnalyzer().analyze_dro(self)
+        if self.analyzer_thread is not None:
+            self.analyzer_thread.stop()
+        self.detailed_register_descriptions = None
+        detailed_register_analyzer = DRODetailedRegisterAnalyzer()
+        detailed_register_analyzer_thread = AnalyzerThread(detailed_register_analyzer, self)
+        detailed_register_analyzer_thread.start()
+        self.analyzer_thread = detailed_register_analyzer_thread
+        # TODO: proper thread management.
+        #self.detailed_register_descriptions = DRODetailedRegisterAnalyzer().analyze_dro(self)
 
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
@@ -697,6 +707,10 @@ class DRODetailedRegisterAnalyzer(object):
             self.OPL_TYPE_DUAL_OPL2,
             self.OPL_TYPE_OPL3
         ] # a bit pointless, but added for consistency.
+        self._stop = threading.Event()
+
+    def stop(self):
+        self._stop.set()
 
     def analyze_dro(self, dro_song):
         self.state_descriptions = []
@@ -708,11 +722,15 @@ class DRODetailedRegisterAnalyzer(object):
         else:
             raise (DROTrimmerException("Unrecognised DRO version: %s. Cannot perform state analysis." %
                                        (dro_song.file_version,)))
+        dro_globals.custom_event_manager().trigger_event("DETAILED_REG_ANALYSIS_DONE",
+            register_descriptions=self.state_descriptions)
         return self.state_descriptions
 
     def __analyze_dro1(self, dro_song):
         opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
         for cmd_and_val in dro_song.data:
+            if self._stop.isSet():
+                return
             cmd = cmd_and_val[0]
             if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
                 val = cmd_and_val[1]
@@ -735,6 +753,8 @@ class DRODetailedRegisterAnalyzer(object):
     def __analyze_dro2(self, dro_song):
         opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
         for cmd, val in dro_song.data:
+            if self._stop.isSet():
+                return
             if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
                 self.state_descriptions.append((self.current_bank, "Delay: %s ms" % val))
                 continue
@@ -767,3 +787,23 @@ class DRODetailedRegisterAnalyzer(object):
         self.current_state[reg_and_bank] = val
 
         return ' / '.join(changed_desc) if len(changed_desc) else '(no changes)'
+
+
+class AnalyzerThread(threading.Thread):
+    def __init__(self, analyzer, *analyzer_args):
+        threading.Thread.__init__(self)
+        self.analyzer = analyzer
+        self.analyzer_args = analyzer_args
+        self._stop = threading.Event()
+
+    def run(self):
+        self.analyzer.analyze_dro(*self.analyzer_args)
+        #dro_globals.custom_event_manager().trigger_event("WORKER_THREAD_FINISHED", thread=self) # hm, not so good
+
+    def stop(self):
+        self._stop.set()
+        self.analyzer.stop()
+        #dro_globals.custom_event_manager().trigger_event("WORKER_THREAD_FINISHED", thread=self) # hm, not so good
+
+    def stopped(self):
+        return self._stop.isSet()
