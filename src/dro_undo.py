@@ -22,6 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+import threading
 import weakref
 
 def undoable(description, undo_controller_getter, undo_function):
@@ -94,6 +95,7 @@ class UndoController(object):
         self.bypass = False
         self.buffer = []
         self.position = -1
+        self._lock = threading.Lock()
 
     def is_buffer_empty(self):
         return len(self.buffer) == 0
@@ -105,11 +107,13 @@ class UndoController(object):
         return not self.is_buffer_empty() and self.position < len(self.buffer) - 1
 
     def append(self, value):
+        self._lock.acquire()
         # If we've already tried undoing, truncate the list
         if self.has_something_to_redo():
-            del self.buffer[self.position:]
+            del self.buffer[self.position + 1:]
         self.buffer.append(value)
         self.position += 1
+        self._lock.release()
 
     def undo(self):
         """ Perform an undo action, using the entry in the undo buffer
@@ -122,13 +126,16 @@ class UndoController(object):
         position will be the last entry in the buffer.
         If buffer is emtpy, will do nothing.
         """
+        self._lock.acquire()
         if self.has_something_to_undo(): # silently ignore calls if nothing to undo.
             memo = self.buffer[self.position]
             self.bypass = True # If the "undo" function is also "undoable", we don't want to keep track of that undo.
             memo.undo()
             self.bypass = False
             self.position -= 1
+            self._lock.release()
             return memo.description
+        self._lock.release()
         return None
 
     def redo(self):
@@ -136,12 +143,59 @@ class UndoController(object):
         Returns a string if an redo was performed, described the action
         that was redone, otherwise returns None.
         """
+        self._lock.acquire()
         if self.has_something_to_redo():  # silently ignore calls if nothing to redo.
             memo = self.buffer[self.position]
             self.bypass = True # If the "redo" function is also "undoable", we don't want to keep track of that undo.
             memo.redo()
             self.bypass = False
             self.position += 1
+            self._lock.release()
             return memo.description
+        self._lock.release()
         return None
 
+
+def __test():
+    con = UndoController()
+    def get_controller():
+        return con
+
+    class UndoTestObject(object):
+        def an_undo_action(self, original_state):
+            print "Action undone"
+
+        @undoable("meow", get_controller, an_undo_action)
+        def an_action(self):
+            print "Do an action"
+
+    obj = UndoTestObject()
+
+    assert len(con.buffer) == 0
+    assert con.position == -1
+    obj.an_action()
+    assert len(con.buffer) == 1
+    assert con.position == 0
+    obj.an_action()
+    assert len(con.buffer) == 2
+    assert con.position == 1
+    con.undo()
+    assert len(con.buffer) == 2
+    assert con.position == 0
+    obj.an_action()
+    assert len(con.buffer) == 2
+    assert con.position == 1
+    obj.an_action()
+    assert len(con.buffer) == 3
+    assert con.position == 2
+    con.undo()
+    assert len(con.buffer) == 3
+    assert con.position == 1
+    con.undo()
+    assert len(con.buffer) == 3
+    assert con.position == 0
+    con.redo()
+    assert len(con.buffer) == 3
+    assert con.position == 1
+
+if __name__ == "__main__": __test()
