@@ -34,5 +34,9 @@ g_custom_event_manager = None
 def custom_event_manager():
     return g_custom_event_manager
 
+g_task_master = None
+def task_master():
+    return g_task_master
+
 g_app_name = "DRO Trimmer"
 g_app_version = "v3 r8"

@@ -23,7 +23,6 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import os.path
-import threading
 import wx
 import dro_analysis
 import dro_data
@@ -34,6 +33,7 @@ try:
     import dro_player
 except ImportError:
     dro_player = None
+import dro_tasks
 import dro_undo
 import dro_util
 from containers import DTMainFrame
@@ -42,8 +42,6 @@ from ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoad
 
 class DTApp(wx.App):
     def OnInit(self):
-        self.worker_threads = []
-
         self.drosong = None
         # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
         #  still make use of the editor.
@@ -101,16 +99,13 @@ class DTApp(wx.App):
         wx.EVT_KEY_DOWN(self, self.keyListener)
         wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListenerForList)
 
-        dro_globals.custom_event_manager().bind_event("DETAILED_REG_ANALYSIS_STARTED",
+        dro_globals.custom_event_manager().bind_event("TASK_REG_ANALYSIS_STARTED",
                     self,
                     self.startDetailedRegisterAnalysis)
-        dro_globals.custom_event_manager().bind_event("DETAILED_REG_ANALYSIS_DONE",
+        dro_globals.custom_event_manager().bind_event("TASK_REG_ANALYSIS_FINISHED",
             self,
             self.finishDetailedRegisterAnalysis)
 
-        dro_globals.custom_event_manager().bind_event("WORKER_THREAD_FINISHED",
-                    self,
-                    self.workerThreadFinished)
 
     # ____________________
     # Start Menu Event Handlers
@@ -502,39 +497,36 @@ class DTApp(wx.App):
         self.drosong.ms_length = ms_length
         return original_values
 
+    # Event/threaded stuff. Requires a little more delicacy.
     def setStatusText(self, message, section=0):
-        self.mainframe.statusbar.SetStatusText(message, section)
+        if self.mainframe.statusbar:
+            self.mainframe.statusbar.SetStatusText(message, section)
 
     def startDetailedRegisterAnalysis(self, event):
         self.setStatusText("Analyzing registers....", section=1)
 
     def finishDetailedRegisterAnalysis(self, event):
-        self.drosong.detailed_register_descriptions = event.register_descriptions
-        self.mainframe.dtlist.RefreshViewableItems()
-        self.setStatusText("", section=1)
-
-    def workerThreadFinished(self, event):
-        try:
-            self.worker_threads.remove(event.thread)
-        except Exception, e:
-            print "Could not remove worker thread from wx app: %s" % (e,)
+        self.drosong.detailed_register_descriptions = event.result
+        if self.mainframe.dtlist:
+            self.mainframe.dtlist.RefreshViewableItems()
+            self.setStatusText("", section=1)
 
 
 def start_gui_app():
     app = None
     dro_globals.g_undo_controller = dro_undo.UndoController()
     dro_globals.g_custom_event_manager = dro_event.CustomEventManager()
+    dro_globals.g_task_master = dro_tasks.TaskMaster()
     try:
         app = DTApp(0)
         dro_globals.g_wx_app = app
         app.SetExitOnFrameDelete(True)
         app.MainLoop()
     finally:
+        dro_globals.g_task_master.stop_all_tasks()
         if app is not None:
             if app.dro_player is not None:
                 app.dro_player.stop() # usually not needed, since it's handled by closeFrame
-            for wt in app.worker_threads:
-                wt.stop()
             app.Destroy()
 
 if __name__ == "__main__": start_gui_app()

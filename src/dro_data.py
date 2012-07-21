@@ -49,7 +49,6 @@ class DROSong(object):
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
         self.detailed_register_descriptions = None
-        self.analyzer_thread = None
 
     def getLengthMS(self):
         return self.ms_length
@@ -195,18 +194,20 @@ class DROSong(object):
             return self.detailed_register_descriptions[item][0]
 
     def generate_detailed_register_descriptions(self):
-        if self.analyzer_thread is not None:
-            self.analyzer_thread.stop()
-            #print self.analyzer_thread.isAlive()
+        dro_globals.task_master().cancel_task("REG_ANALYSIS")
         self.detailed_register_descriptions = None
         detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
         # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
         # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
-        detailed_register_analyzer_thread = dro_analysis.AnalyzerThread(0.1, detailed_register_analyzer, self)
-        detailed_register_analyzer_thread.start()
-        self.analyzer_thread = detailed_register_analyzer_thread
-        # TODO: proper thread management.
-        #self.detailed_register_descriptions = DRODetailedRegisterAnalyzer().analyze_dro(self)
+        dro_globals.task_master().start_task(
+            "REG_ANALYSIS",
+            0.1,
+            detailed_register_analyzer.analyze_dro,
+            detailed_register_analyzer.cancel,
+            [self]
+        )
+
+
 
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (

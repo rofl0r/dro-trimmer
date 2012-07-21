@@ -438,11 +438,10 @@ class DRODetailedRegisterAnalyzer(object):
         ] # a bit pointless, but added for consistency.
         self._stop = threading.Event()
 
-    def stop(self):
+    def cancel(self):
         self._stop.set()
 
     def analyze_dro(self, dro_song):
-        dro_globals.custom_event_manager().trigger_event("DETAILED_REG_ANALYSIS_STARTED")
         self.state_descriptions = []
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
@@ -452,8 +451,6 @@ class DRODetailedRegisterAnalyzer(object):
         else:
             raise (DROTrimmerException("Unrecognised DRO version: %s. Cannot perform state analysis." %
                                        (dro_song.file_version,)))
-        dro_globals.custom_event_manager().trigger_event("DETAILED_REG_ANALYSIS_DONE",
-                                                         register_descriptions=self.state_descriptions)
         return self.state_descriptions
 
     def __analyze_dro1(self, dro_song):
@@ -518,25 +515,3 @@ class DRODetailedRegisterAnalyzer(object):
 
         return ' / '.join(changed_desc) if len(changed_desc) else '(no changes)'
 
-
-class AnalyzerThread(threading.Thread):
-    def __init__(self, delay, analyzer, *analyzer_args):
-        threading.Thread.__init__(self)
-        self.analyzer = analyzer
-        self.analyzer_args = analyzer_args
-        self.delay = delay
-        self._stop = threading.Event()
-
-    def run(self):
-        self._stop.wait(self.delay)
-        if not self._stop.isSet():
-            self.analyzer.analyze_dro(*self.analyzer_args)
-            #dro_globals.custom_event_manager().trigger_event("WORKER_THREAD_FINISHED", thread=self) # hm, not so good
-
-    def stop(self):
-        self._stop.set()
-        self.analyzer.stop()
-        #dro_globals.custom_event_manager().trigger_event("WORKER_THREAD_FINISHED", thread=self) # hm, not so good
-
-    def stopped(self):
-        return self._stop.isSet()
