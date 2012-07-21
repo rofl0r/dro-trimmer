@@ -25,6 +25,7 @@
 import os.path
 import threading
 import wx
+import dro_analysis
 import dro_data
 import dro_event
 import dro_globals
@@ -126,7 +127,7 @@ class DTApp(wx.App):
             self.drosong = importer.read(filename)
 
             # Delete first instruction if it's a bogus delay (mostly for V1)
-            first_delay_analyzer = dro_data.DROFirstDelayAnalyzer()
+            first_delay_analyzer = dro_analysis.DROFirstDelayAnalyzer()
             first_delay_analyzer.analyze_dro(self.drosong)
             if first_delay_analyzer.result:
                 self.drosong.delete_instructions([0])
@@ -136,7 +137,7 @@ class DTApp(wx.App):
 
             # Check if the totaly delay calculated doesn't match the delay recorded
             #  in the DRO file header.
-            delay_mismatch_analyzer = dro_data.DROTotalDelayMismatchAnalyzer()
+            delay_mismatch_analyzer = dro_analysis.DROTotalDelayMismatchAnalyzer()
             delay_mismatch_analyzer.analyze_dro(self.drosong)
             delay_mismatch = delay_mismatch_analyzer.result
 
@@ -144,8 +145,8 @@ class DTApp(wx.App):
             self.drosong.generate_detailed_register_descriptions()
             # This isn't quite right - will cause problems if you open another song right afterwards, you'll have
             #  two analysis threads running.
-#            detailed_register_analyzer = dro_data.DRODetailedRegisterAnalyzer()
-#            detailed_register_analyzer_thread = dro_data.AnalyzerThread(0.5, detailed_register_analyzer, self.drosong)
+#            detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
+#            detailed_register_analyzer_thread = dro_analysis.AnalyzerThread(0.5, detailed_register_analyzer, self.drosong)
 #            self.worker_threads.append(detailed_register_analyzer_thread)
 #            detailed_register_analyzer_thread.start()
 
@@ -233,7 +234,7 @@ class DTApp(wx.App):
         if self.loop_analysis_dialog is not None:
             self.loop_analysis_dialog.Destroy()
         # Create a dummy analyzer so we know how many result pages we need to create.
-        analyzer = dro_data.DROLoopAnalyzer()
+        analyzer = dro_analysis.DROLoopAnalyzer()
         self.loop_analysis_dialog = LoopAnalysisDialog(self, analyzer, self.mainframe)
         self.loop_analysis_dialog.Show()
 
@@ -427,7 +428,7 @@ class DTApp(wx.App):
         if self.loop_analysis_dialog is None:
             errorAlert(self.mainframe, "Loop analysis requires the Loop Analysis dialog to be open, but none found.")
             return
-        analyzer = dro_data.DROLoopAnalyzer()
+        analyzer = dro_analysis.DROLoopAnalyzer()
         results = analyzer.analyze_dro(self.drosong)
         self.loop_analysis_dialog.load_results(results)
         self.setStatusText("Loop analysis finished.")

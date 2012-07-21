@@ -23,6 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import wx
+import dro_analysis
 import dro_data
 import dro_globals
 import dro_util
@@ -155,7 +156,7 @@ class DROInfoDialog ( wx.Dialog ):
         self.lLengthMs = wx.StaticText(self, -1, "Length (MS)")
         self.tcLengthMs = wx.TextCtrl(self, -1, str(dro_song.ms_length))
         self.lLengthMsCalc = wx.StaticText(self, -1, "Calculated Length (MS)")
-        calculated_delay = dro_data.DROTotalDelayCalculator().sum_delay(dro_song)
+        calculated_delay = dro_analysis.DROTotalDelayCalculator().sum_delay(dro_song)
         self.tcLengthMsCalc = wx.TextCtrl(self, -1, str(calculated_delay))
         if dro_info_edit_enabled:
             self.bEdit = wx.Button(self, guiID("BUTTON_DROINFO_EDIT"), "Edit")
