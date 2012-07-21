@@ -25,8 +25,11 @@
 
 """
 This module wraps around events. It provides the ability to bind functions to specified event flags.
-Currently, it will use "wx" events if available. If not, it will provide some limited functionality -
-it is missing things like skipping or vetoing events, a proper event queue, and more.
+Currently, it will use "wx" event functionality, if the "target" is a wx Event Handler object.
+If not, it will provide some limited functionality - it is missing things like skipping or vetoing events,
+a proper event queue, and more.
+You can have a mixture of "wx" and regular Python objects as handlers; the manager will use the wx
+event system for "wx" handlers, and the custom (limited) functionality for regular Python objects.
 
 In the limited functionality, event handlers are triggered immediately; this service ends up acting as
 a callback abstraction.
@@ -47,51 +50,60 @@ except ImportError:
     wx = None
 from dro_util import StructFromKeywords
 
-class CustomEventManager(object):
-
+class _EventSettings(object):
     def __init__(self):
-        self.__event_handlers = defaultdict(list)
-        self.__event_binders = {}
-        self.__event_classes = {}
+        self.gui_binder = None
+        self.gui_event_class = None
+        self.binder = None
+        self.event_class = None
+        self.handlers = []
+
+class CustomEventManager(object):
+    def __init__(self):
+        self.__event_settings = defaultdict(_EventSettings)
 
     def __create_event(self, event_name):
+        new_settings = _EventSettings()
         if wx is not None:
             EventPayloadClass, EVT_BINDER = wx.lib.newevent.NewEvent()
-            self.__event_binders[event_name] = EVT_BINDER
-            self.__event_classes[event_name] = EventPayloadClass
-        else:
-            self.__event_binders[event_name] = partial(self.__register_event_handler, event_name)
-            self.__event_classes[event_name] = StructFromKeywords
+            new_settings.gui_binder = EVT_BINDER
+            new_settings.gui_event_class = EventPayloadClass
+        new_settings.binder = partial(self.__register_event_handler, event_name)
+        new_settings.event_class = StructFromKeywords
+        self.__event_settings[event_name] = new_settings
 
     def __register_event_handler(self, event_name, target, handler_func):
-        self.__event_handlers[event_name].append((target, handler_func))
+        self.__event_settings[event_name].handlers.append((target, handler_func))
 
     def __unregister_event_handler(self, event_name, target, handler_func):
-        event_handler_list = self.__event_handlers[event_name]
+        event_handler_list = self.__event_settings[event_name].handlers
         event_handler_list.remove((target, handler_func))
 
     def trigger_event(self, event_name, target=None, **kwds):
         """ Sends and event to a handler function.
         Creates event classes if not already created, so that an event can
         be triggered when there are no handlers."""
-        if event_name not in self.__event_binders:
+        if event_name not in self.__event_settings:
             self.__create_event(event_name)
-        evt_payload_class = self.__event_classes[event_name]
-        if wx is not None:
-            if target is None:
-                target = wx.GetApp()
-            wx.PostEvent(target, evt_payload_class(**kwds))
-        else:
-            for registered_target, handler_func in self.__event_handlers[event_name]:
-                if target is None or target == registered_target:
-                    handler_func(evt_payload_class(**kwds))
+        evt_settings = self.__event_settings[event_name]
+        # Trigger event for GUI handlers
+        if wx is not None and evt_settings.gui_event_class is not None:
+            wx_target = wx.GetApp() if target is None else target
+            wx.PostEvent(wx_target, evt_settings.gui_event_class(**kwds))
+        # Trigger event for non-GUI handlers
+        for registered_target, handler_func in evt_settings.handlers:
+            if target is None or target == registered_target:
+                handler_func(evt_settings.event_class(**kwds))
 
     def bind_event(self, event_name, target, handler_func):
         """ Binds an event to a handler instance & function.
         Creates event classes if not already created."""
-        if event_name not in self.__event_binders:
+        if event_name not in self.__event_settings:
             self.__create_event(event_name)
-        binder = self.__event_binders[event_name]
+        if wx is not None and isinstance(target, wx.EvtHandler):
+            binder = self.__event_settings[event_name].gui_binder
+        else:
+            binder = self.__event_settings[event_name].binder
         binder(target, handler_func)
 
     def unbind_event(self, event_name, target, handler_func):
@@ -99,10 +111,10 @@ class CustomEventManager(object):
         If the event does not appear to have been created previously (via a call to bind_event or trigger_event),
         this method will do nothing.
         """
-        if event_name not in self.__event_binders:
+        if event_name not in self.__event_settings:
             return # assume event has not been bound previously, so nothing to unbind.
-        if wx is not None:
-            binder = self.__event_binders[event_name]
+        if wx is not None and isinstance(target, wx.EvtHandler):
+            binder = self.__event_settings[event_name].gui_binder
             binder.Unbind(target, wx.ID_ANY, wx.ID_ANY, handler_func) # not sure if this is right...
         else:
             self.__unregister_event_handler(event_name, target, handler_func)
@@ -113,10 +125,9 @@ def __test():
     global wx
     global __event_binders
 
+    event_manager = CustomEventManager()
     # Test with wx (if it exists)
     if wx is not None:
-        event_manager = CustomEventManager()
-
         class TestHandlerApp(wx.App):
             def __init__(self, *args):
                 wx.App.__init__(self, *args)
@@ -145,10 +156,6 @@ def __test():
         assert app.time_event_triggered == 1
 
     # Test without wx
-    wx = None
-    # Because we've not decided "wx" no longer exists, our earlier binder cache is invalid, so we need to
-    #  create a new event manager.
-    event_manager = CustomEventManager()
     class TestHandler(object):
         def __init__(self):
             self.times_event_trigerred = 0
