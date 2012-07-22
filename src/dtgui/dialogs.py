@@ -296,3 +296,8 @@ class LoopAnalysisDialog(wx.Dialog):
             result_list = ["No analysis performed yet."] * len(self.result_pages)
         for loop_analysis_result, page in zip(result_list, self.result_pages):
             page.setText(str(loop_analysis_result))
+
+    def load_result(self, result_page, result):
+        if result is None:
+            result = ["No analysis performed yet."]
+        self.result_pages[result_page].setText(str(result))

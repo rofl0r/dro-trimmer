@@ -93,14 +93,26 @@ class DROLoopAnalyzer(object):
             self.analyze_longest_instruction_blocks,
             self.analyze_seqeunce_matcher
         ]
+        self._stop = threading.Event()
 
     def num_analyses(self):
         return len(self.analysis_methods)
 
+    def cancel(self):
+        self._stop.set()
+
     def analyze_dro(self, dro_song):
         results = []
-        for analysis_method in self.analysis_methods:
-            results.append(analysis_method(dro_song))
+        for i, analysis_method in enumerate(self.analysis_methods):
+            if self._stop.isSet():
+                return None
+            result = analysis_method(dro_song)
+            results.append(result)
+            dro_globals.custom_event_manager().trigger_event(
+                "LOOP_ANALYSIS_PARTIAL_RESULT",
+                analysis_result=result,
+                method_number=i
+            )
         return results
 
     def __do_backward_search_analysis(self, dro_data, original_indexes):
@@ -133,6 +145,8 @@ class DROLoopAnalyzer(object):
         match_ended = False
         # Iterate in reverse, also getting the index.
         for i, curr_value in itertools.izip(xrange(end_index, -1, -1), (reversed(dro_data))):
+            if self._stop.isSet():
+                return None
             # Ignore the end value
             if i == end_index:
                 continue
@@ -217,6 +231,8 @@ class DROLoopAnalyzer(object):
         dro_data = []
         MIN_DELAY_TO_INCLUDE = 2 # skip delays of 1 ms
         for i, datum in enumerate(dro_song.data):
+            if self._stop.isSet():
+                return None
             reg = datum[0]
             should_include = False
             if reg in (dro_song.short_delay_code,
@@ -247,6 +263,8 @@ class DROLoopAnalyzer(object):
         start_pos = 0
         dro_data = dro_song.data
         for i, reg_and_val in enumerate(dro_data):
+            if self._stop.isSet():
+                return None
             reg = reg_and_val[0]
             if reg in (dro_song.short_delay_code,
                        dro_song.long_delay_code):
@@ -335,6 +353,8 @@ class DROLoopAnalyzer(object):
         sections = []
         curr_section = self.Match()
         for i, datum in enumerate(dro_data):
+            if self._stop.isSet():
+                return None
             reg = datum[0]
             if reg not in (dro_song.short_delay_code,
                            dro_song.long_delay_code):
@@ -391,6 +411,8 @@ class DROLoopAnalyzer(object):
         result_str += ("Result of analysis:\n longest block = " + str(result[2]) +
                        ",\n start first half = " + str(result[0]) +
                        ",\n start second half = " + str(result[1] + tmp_len) + "\n")
+        if self._stop.isSet():
+            return None # bleh
 
         # TODO: Find the first instance of the data block dro_data[result[0]:result[1] + tmp_len]?
         # No. This is not the problem. The problem is that the longest block could be because

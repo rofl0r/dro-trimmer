@@ -105,7 +105,9 @@ class DTApp(wx.App):
         dro_globals.custom_event_manager().bind_event("TASK_REG_ANALYSIS_FINISHED",
             self,
             self.finishDetailedRegisterAnalysis)
-
+        dro_globals.custom_event_manager().bind_event("LOOP_ANALYSIS_PARTIAL_RESULT",
+              self,
+              self.processPartialLoopAnalysisResult)
 
     # ____________________
     # Start Menu Event Handlers
@@ -423,10 +425,16 @@ class DTApp(wx.App):
         if self.loop_analysis_dialog is None:
             errorAlert(self.mainframe, "Loop analysis requires the Loop Analysis dialog to be open, but none found.")
             return
+        self.loop_analysis_dialog.load_results(None)
         analyzer = dro_analysis.DROLoopAnalyzer()
-        results = analyzer.analyze_dro(self.drosong)
-        self.loop_analysis_dialog.load_results(results)
-        self.setStatusText("Loop analysis finished.")
+        dro_globals.task_master().start_task(
+            "LOOP_ANALYSIS",
+            0,
+            analyzer.analyze_dro,
+            analyzer.cancel,
+            [self.drosong]
+        )
+#        self.setStatusText("Loop analysis finished.")
 
     # ____________________
     # Start Misc Event Handlers
@@ -515,6 +523,14 @@ class DTApp(wx.App):
         if self.mainframe.dtlist:
             self.mainframe.dtlist.RefreshViewableItems()
             self.setStatusText("", section=1)
+
+    def processPartialLoopAnalysisResult(self, event):
+        print event.method_number, event.analysis_result
+        if self.loop_analysis_dialog:
+            self.loop_analysis_dialog.load_result(
+                event.method_number,
+                event.analysis_result
+            )
 
 
 def start_gui_app():
