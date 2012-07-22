@@ -306,7 +306,7 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def buttonDelete(self, event):
-        if self.mainframe.dtlist.HasSelected():
+        if self.mainframe and self.mainframe.dtlist and self.mainframe.dtlist.HasSelected():
             if self.dro_player is not None:
                 self.dro_player.stop()
                 # I think all of this should be moved to the dtlist...
@@ -431,6 +431,8 @@ class DTApp(wx.App):
     # ____________________
     # Start Misc Event Handlers
     def keyListenerForList(self, event):
+        if not self:
+            return
         keycode = event.GetKeyCode()
         if keycode in (wx.WXK_DELETE, wx.WXK_BACK): # delete or backspace
             self.buttonDelete(None)
@@ -447,6 +449,8 @@ class DTApp(wx.App):
             event.Skip()
 
     def keyListener(self, event):
+        if not self:
+            return
         keycode = event.GetKeyCode()
         if keycode == 70 and event.CmdDown(): # CTRL-F
             self.menuFindReg(event)
@@ -473,6 +477,7 @@ class DTApp(wx.App):
             event.Skip()
 
     def closeFrame(self, event):
+        dro_globals.g_task_master.stop_all_tasks()
         wx.Window.DestroyChildren(self.mainframe)
         wx.Window.Destroy(self.mainframe)
         if self.dro_player is not None:

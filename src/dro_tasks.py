@@ -95,19 +95,25 @@ class TaskMaster(object):
             self.tasks[task_name].cancel()
 
     def stop_all_tasks(self):
-        active_tasks_exist = False
+        """ Should be called from the main thread. Otherwise, the wx app could close
+        before all tasks have been joined, which could lead to a crash.
+        """
+        active_tasks_exist = len(self.tasks) > 0
         while active_tasks_exist:
+            active_tasks_exist = False
             for task in self.tasks.values():
                 task.cancel()
-                time.sleep(0.05)
+                task.join(0.5)
                 active_tasks_exist |= task.isAlive()
             if active_tasks_exist:
                 time.sleep(0.5)
-        print "All tasks appear to have finished"
 
     def _task_ended(self, event):
         evt_task = event.task
         registered_task = self.tasks[event.task_name]
         if registered_task is evt_task:
             del self.tasks[event.task_name]
-
+        # Doesn't seem to work - causes crashes. Hmm.
+#        else:
+#            registered_task.join(0.1)
+#        evt_task.join(0.1)
