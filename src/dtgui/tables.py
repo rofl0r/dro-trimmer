@@ -96,6 +96,7 @@ class DTSongDataList(wx.ListCtrl):
 
     def SelectItemManual(self, ind):
         self.Select(ind, 1) # select
+        self.Focus(ind)
 
     def SelectNextItem(self):
         oldsel = self.GetLastSelected()
