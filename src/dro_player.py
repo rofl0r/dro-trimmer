@@ -413,7 +413,8 @@ def main():
         # Print the end time too (but cheat)
         sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
     except KeyboardInterrupt, ke:
-        pass
+        if dro_player.is_playing:
+            dro_player.stop()
     except Exception, e:
         print e
         return 2
