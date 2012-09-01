@@ -130,7 +130,7 @@ class DTApp(wx.App):
             else:
                 auto_trimmed = False
 
-            # Check if the totaly delay calculated doesn't match the delay recorded
+            # Check if the total delay calculated doesn't match the delay recorded
             #  in the DRO file header.
             delay_mismatch_analyzer = dro_analysis.DROTotalDelayMismatchAnalyzer()
             delay_mismatch_analyzer.analyze_dro(self.drosong)
@@ -138,12 +138,6 @@ class DTApp(wx.App):
 
             # Load detailed register analysis.
             self.drosong.generate_detailed_register_descriptions()
-            # This isn't quite right - will cause problems if you open another song right afterwards, you'll have
-            #  two analysis threads running.
-#            detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
-#            detailed_register_analyzer_thread = dro_analysis.AnalyzerThread(0.5, detailed_register_analyzer, self.drosong)
-#            self.worker_threads.append(detailed_register_analyzer_thread)
-#            detailed_register_analyzer_thread.start()
 
             if self.dro_player is not None:
                 self.dro_player.stop()
