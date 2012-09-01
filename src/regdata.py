@@ -181,6 +181,7 @@ registers = {
 }
 
 class RegisterBitmask(object):
+    __slots__ = ["description", "mask"]
     def __init__(self, description, mask):
         self.description = description
         self.mask = mask
