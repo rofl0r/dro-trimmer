@@ -27,10 +27,12 @@ import difflib
 import itertools
 import threading
 
-from dro_data import DRO_FILE_V1, DRO_FILE_V2
-import dro_globals
 from dro_util import DROTrimmerException
 import regdata
+
+# Duplicated from dro_data to avoid circular import. TODO: move to common location.
+DRO_FILE_V1 = 1
+DRO_FILE_V2 = 2
 
 class DROTotalDelayCalculator(object):
     def sum_delay(self, dro_song):
