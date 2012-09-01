@@ -5,6 +5,8 @@ import dro_analysis
 def test_inner():
     dro_loader = dro_io.DroFileIO()
     dro_song = dro_loader.read("pm2_014.dro")
+    del dro_loader
+    return dro_song
     #ana = dro_analysis.DRODetailedRegisterAnalyzer()
     #result = ana.analyze_dro(dro_song)
     #return result
@@ -29,8 +31,11 @@ def test_slots():
     return
 
 
+@profile
 def test_main():
     result = test_inner()
+    print result
+    del result
     #test_tuples()
     #test_slots()
 
