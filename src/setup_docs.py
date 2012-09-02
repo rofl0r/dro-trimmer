@@ -24,6 +24,7 @@
 #    THE SOFTWARE.
 from __future__ import with_statement
 import codecs
+import datetime
 import os
 import sys
 from creole import creole2html
@@ -34,14 +35,17 @@ template_file_name = "doc_template.html"
 output_file_name = "readme.html"
 
 def main():
-    if len(sys.argv) < 4:
-        print "Insufficient arguments, please pass the input directory, the template directory, and the output directory."
+    if len(sys.argv) < 5:
+        print "Insufficient arguments, please pass the input directory, the template directory, the output directory, and the documnent source URL."
         return 1
     try:
         in_dir = sys.argv[1]
         template_dir = sys.argv[2]
         out_dir = sys.argv[3]
+        generated_source = sys.argv[4]
 
+        generated_date = datetime.datetime.now().strftime("%d %b %Y, %H:%M:%S")
+        
         with codecs.open(os.path.join(in_dir, in_wiki_file_name), 'r', 'utf-8') as in_file:
             creole_text = in_file.read()
         html_body = creole2html(creole_text)
@@ -50,7 +54,9 @@ def main():
             html_output = template_file.read()
         html_output = html_output.format(
             title=app_globals.g_app_name + " " + app_globals.g_app_version,
-            body=html_body)
+            body=html_body,
+            generated_date=generated_date,
+            generated_source=generated_source)
 
         if not os.path.isdir(out_dir):
             os.mkdir(out_dir)

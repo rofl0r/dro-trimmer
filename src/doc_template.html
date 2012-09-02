@@ -1,8 +1,80 @@
 <html>
 <head>
 <title>{title}</title>
+<style type="text/css">
+body {{
+	font-family: 'Lucida Grande', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+	padding: 100px;
+	font-size: 13px;
+	background: #FBFBFB;
+}}
+
+h1 {{
+	font-size: 36pt;
+	font-family: Georgia, "Times New Roman", Times, serif;
+	text-align: center;
+	color: #223666;
+	padding-bottom: 36px;
+	font-weight: bold;
+}}
+
+h2 {{
+  border: solid #3B5B7F;
+  border-top-width: 2px;
+	border-right-width: 2px;
+	border-bottom-width: 2px;
+	border-left-width: 2px;
+	text-transform: none;
+	font-style: normal;
+	background-color: #6D8EC5;
+	color: #FFFFFF;
+	text-align: center;
+	page-break-before: auto;
+	padding: 2px;
+	margin-bottom: 20px;
+	margin-top: 40px;
+}}
+
+h3 {{
+    margin: 0;
+	padding: 4px;
+	border-top-width: 1px;
+	border-right-width: 1px;
+	border-bottom-width: 1px;
+	border-left-width: 1px;
+	border-style: solid;
+	border-color: #223666;
+	background-color: #E2E2E2;
+	vertical-align: top;
+}}
+
+pre {{
+  background-color: #FAFAFA; 
+  padding: 4px;
+	border-top-width: 1px;
+	border-right-width: 1px;
+	border-bottom-width: 1px;
+	border-left-width: 1px;
+	border-style: solid;
+	border-color: #AAA;
+}}
+
+p {{
+	text-indent: 6pt;
+}}
+
+.smallfooter {{
+	padding-top: 10px;
+	font-size: x-small;
+	text-align: center;
+	border-top-style: solid;
+	border-top-width: 1px;
+	border-top-color: #223666;
+}}
+</style>
 </head>
 <body>
 {body}
+<p class="smallfooter">Document generated on {generated_date}, from {generated_source}</p>
 </body>
 </html>
