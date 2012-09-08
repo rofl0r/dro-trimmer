@@ -23,13 +23,188 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import array
 import dro_analysis
 import dro_globals
 import dro_undo
+import dro_util
 import regdata
 
 DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
+
+
+class DROInstruction(object):
+    __slots__ = ["inst_type", "command", "value", "bank"]
+    T_REGISTER, T_DELAY, T_BANK_SWITCH = range(3)
+    BS_LOW, BS_HIGH = (0x02, 0x03)
+
+    def __init__(self, inst_type, command, value, bank=None):
+        self.inst_type = inst_type
+        self.command = command
+        self.value = value
+        self.bank = bank
+
+    def __repr__(self):
+        return ("DROInstruction(%s, %s, %s, %s)" %
+            (self.inst_type,
+                self.command,
+                self.value,
+                self.bank))
+
+
+class DRODataFactory(object):
+    def __new__(cls, file_version, *args, **kwds):
+        if file_version == DRO_FILE_V1:
+            return DRODataV1(*args, **kwds)
+        elif file_version == DRO_FILE_V2:
+            return DRODataV1(*args, **kwds)
+        else:
+            return dro_util.DROTrimmerException("Unknown DRO version for data factory: %s" % file_version)
+
+
+class DROData(object):
+    """ Wraps around the DRO data, providing access to each instruction,
+    while efficiently storing the item in memory.
+    """
+    def __init__(self, *args, **kwds):
+        self.data = array.array('B')
+
+    def translate_index(self, key):
+        raise NotImplementedError()
+
+    def interpret_data(self, real_index):
+        raise NotImplementedError()
+
+    def __len__(self):
+        raise NotImplementedError()
+
+    def iter_indexes(self):
+        raise NotImplementedError()
+
+    def __delitem__(self, key):
+        first_index = self.translate_index(key)
+        try:
+            second_index = self.translate_index(key + 1)
+        except IndexError:
+            second_index = None
+        if second_index is None:
+            del self.data[first_index:] # possibly dangerous
+        else:
+            del self.data[first_index:second_index]
+
+    def __getitem__(self, key):
+        real_index = self.translate_index(key)
+        return self.interpret_data(real_index)
+
+    def __iter__(self):
+        for i in self.iter_indexes():
+            yield self[i]
+
+    def fromfile(self, file_handle, num_entries):
+        self.data.fromfile(file_handle, num_entries)
+
+    def tofile(self, file_handle):
+        self.data.tofile(file_handle)
+
+    def raw_len(self):
+        return len(self.data)
+
+    def raw_iter(self):
+        return iter(self.data)
+
+
+class DRODataV1(DROData):
+    def __init__(self, *args, **kwds):
+        super(DRODataV1, self).__init__(*args, **kwds)
+        self.index_map = [] # keys are indexes.
+
+    def translate_index(self, index):
+        return self.index_map[index]
+
+    def interpret_data(self, real_index):
+        cmd = self.data[real_index]
+        if cmd == 0x00:
+            inst_type = DROInstruction.T_DELAY
+            val = self.data[real_index + 1] + 1
+        elif cmd == 0x01:
+            inst_type = DROInstruction.T_DELAY
+            val = (self.data[real_index + 1] | (self.data[real_index + 2] << 8)) + 1
+        elif cmd == 0x02:
+            inst_type = DROInstruction.T_BANK_SWITCH
+            val = 0x00
+        elif cmd == 0x03:
+            inst_type = DROInstruction.T_BANK_SWITCH
+            val = 0x01
+        elif cmd == 0x04:
+            inst_type = DROInstruction.T_REGISTER
+            cmd = self.data[real_index + 1]
+            val = self.data[real_index + 2]
+        else:
+            inst_type = DROInstruction.T_REGISTER
+            val = self.data[real_index + 1]
+
+        return DROInstruction(inst_type, cmd, val)
+
+    def __len__(self):
+        return len(self.index_map)
+
+    def iter_indexes(self):
+        return iter(self.index_map)
+
+    def generate_index_map(self):
+        self.index_map = []
+        i = 0
+        while i < len(self.data):
+            # Map the logical index to the real index
+            self.index_map.append(i)
+            # Skip to the next instruction
+            cmd = self.data[i]
+            if cmd == 0x00:
+                i += 2
+            elif cmd == 0x01:
+                i += 3
+            elif cmd in (0x02, 0x03):
+                i += 1
+            elif cmd == 0x04:
+                i += 3
+            else:
+                i+= 2
+
+
+class DRODataV2(DROData):
+    def __init__(self, *args, **kwds):
+        super(DRODataV2, self).__init__(self, *args, **kwds)
+        self.codemap = None
+        self.short_delay_code = None
+        self.long_delay_code = None
+
+    def translate_index(self, key):
+        return key * 2
+
+    def interpret_data(self, real_index):
+        cmd = self.data[real_index]
+        bank = None
+        if cmd == self.short_delay_code:
+            inst_type = DROInstruction.T_DELAY
+            val = self.data[real_index + 1] + 1
+        elif cmd == self.long_delay_code:
+            inst_type = DROInstruction.T_DELAY
+            val = (self.data[real_index + 1] + 1) << 8
+        else:
+            inst_type = DROInstruction.T_REGISTER
+            bank = (cmd & 0x80) >> 7
+            cmd = self.codemap[cmd & 0x7F]
+            val = self.data[real_index + 1]
+
+        return DROInstruction(inst_type, cmd, val, bank)
+
+    def __len__(self):
+        return len(self.data) / 2
+
+    def iter_indexes(self):
+        return xrange(len(self.data) / 2)
+
 
 class DROSong(object):
     """ NOTE: this actually implements methods for the V1 file format.
