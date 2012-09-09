@@ -163,7 +163,9 @@ class DTApp(wx.App):
                     dats + 'here was a mismatch between\n' +\
                     'the measured length of the song in milliseconds,\n' +\
                     'and the length stored in the DRO file.\n' +\
-                    'You can fix this in the DRO Info page.',
+                    'You can fix this in the DRO Info page, \n' +\
+                    'as long as "dro_info_edit_enabled" is enabled\n' +\
+                    'in the drotrim.ini configuration file.',
                     'DRO timing mismatch',
                     style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()

@@ -169,6 +169,7 @@ class DroFileIOv2(object):
         dro_data.codemap = codemap
         dro_data.short_delay_code = iShortDelayCode
         dro_data.long_delay_code = iLongDelayCode
+        dro_data.delay_codes = (iShortDelayCode, iLongDelayCode) # meh
 
         # NOTE: iHardwareType value is different compared to V1. Really should cater for it better by converting to another value.
         return DROSongV2(DRO_FILE_V2, file_name, dro_data, iLengthMS, iHardwareType, codemap, iShortDelayCode, iLongDelayCode)

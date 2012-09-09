@@ -27,6 +27,7 @@ import difflib
 import itertools
 import threading
 
+import dro_data
 from dro_util import DROTrimmerException
 import regdata
 
@@ -38,10 +39,9 @@ class DROTotalDelayCalculator(object):
     def sum_delay(self, dro_song):
         # Bleh
         calc_delay = 0
-        for datum in dro_song.data:
-            reg = datum[0]
-            if reg in (dro_song.short_delay_code, dro_song.long_delay_code):
-                calc_delay += datum[1]
+        for inst in dro_song.data:
+            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+                calc_delay += inst.value
         return calc_delay
 
 
@@ -55,8 +55,8 @@ class DROFirstDelayAnalyzer(object):
         """
         if not len(dro_song.data):
             return
-        reg_and_val = dro_song.data[0]
-        if reg_and_val[0] in (dro_song.short_delay_code, dro_song.long_delay_code):
+        inst = dro_song.data[0]
+        if inst.inst_type == dro_data.DROInstruction.T_DELAY:
             self.result = True
 
 
@@ -175,8 +175,6 @@ class DROLoopAnalyzer(object):
         if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
             result += "No match found. I'm sorry.\n"
         else:
-            #print dro_data[longest_match.start:longest_match.end + 1]
-            #print dro_data[end_match.start:end_match.end + 1]
             # Convert matching indexes to original indexes
             longest_match = self.Match(
                 start=original_indexes[longest_match.start],
@@ -216,25 +214,33 @@ class DROLoopAnalyzer(object):
         # This is because sometimes the looped information has slightly different
         # data.
         original_indexes = []
-        dro_data = []
+        # crap. TODO: proper cloning of DROData objects.
+        if type(dro_song.data) == dro_data.DRODataV1:
+            dro_data_copy = dro_data.DRODataV1()
+        elif type(dro_song.data) == dro_data.DRODataV2:
+            dro_data_copy = dro_data.DRODataV2()
+            dro_data_copy.codemap = dro_song.data.codemap
+        else:
+            raise DROTrimmerException("Unknown type of DRO Data used in analyser: %s" %
+                type(dro_song.data))
+        dro_data_copy.short_delay_code = dro_song.data.short_delay_code
+        dro_data_copy.long_delay_code = dro_song.data.long_delay_code
+        dro_data_copy.delay_codes = dro_song.data.delay_codes
+
         MIN_DELAY_TO_INCLUDE = 2 # skip delays of 1 ms
-        for i, datum in enumerate(dro_song.data):
-            reg = datum[0]
+        for i, inst in enumerate(dro_song.data):
             should_include = False
-            if reg in (dro_song.short_delay_code,
-                       dro_song.long_delay_code):
-                if datum[1] >= MIN_DELAY_TO_INCLUDE:
+            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+                if inst.value >= MIN_DELAY_TO_INCLUDE:
                     should_include = True
-            else:
-                if dro_song.file_version == DRO_FILE_V2: # sigh
-                    reg = dro_song.codemap[reg & 0x7F]
-                if reg in range(0xB0, 0xB9):
+            elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
+                if inst.command in range(0xB0, 0xB9):
                     should_include = True
             if should_include:
-                dro_data.append(datum)
+                dro_data_copy.append_raw(dro_song.data.get_raw(i))
                 original_indexes.append(i)
 
-        result = self.__do_backward_search_analysis(dro_data, original_indexes)
+        result = self.__do_backward_search_analysis(dro_data_copy, original_indexes)
         return self.AnalysisResult("Earliest match to end (delays and note on/off only)", result)
 
     def analyze_latest_start_match(self, dro_song):
@@ -247,23 +253,16 @@ class DROLoopAnalyzer(object):
         # First, find our starting point.
         note_on_found = False
         start_pos = 0
-        dro_data = dro_song.data
-        for i, reg_and_val in enumerate(dro_data):
-            reg = reg_and_val[0]
-            if reg in (dro_song.short_delay_code,
-                       dro_song.long_delay_code):
+        for i, inst in enumerate(dro_song.data):
+            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 if note_on_found:
                     # This is where we want to start, the first delay after the first "note on" instruction
                     start_pos = i
                     break
                 else:
                     continue
-            if dro_song.file_version == DRO_FILE_V1:
-                if reg < 0x05: # skip non-register commands
-                    continue
-            elif dro_song.file_version == DRO_FILE_V2:
-                reg = dro_song.codemap[reg & 0x7F]
-            if reg in range(0xB0, 0xB9):
+            elif (inst.inst_type == dro_data.DROInstruction.T_REGISTER and
+                    inst.value in range(0xB0, 0xB9)):
                 note_on_found = True
 
         if start_pos == 0:
@@ -276,9 +275,9 @@ class DROLoopAnalyzer(object):
         longest_match = self.Match()
         start_match = self.Match()
         match_ended = False
-        for i in xrange(start_pos + 1, len(dro_data)):
-            early_value = dro_data[early_index]
-            later_value = dro_data[i]
+        for i in xrange(start_pos + 1, len(dro_song.data)):
+            early_value = dro_song.data[early_index]
+            later_value = dro_song.data[i]
 
             if early_value == later_value:
                 # Check if we're starting a new match
@@ -286,7 +285,7 @@ class DROLoopAnalyzer(object):
                     curr_match = self.Match(start=i, end=i, length=0)
                 curr_match.length += 1
                 curr_match.end = i
-                if i == len(dro_data) - 1:
+                if i == len(dro_song.data) - 1:
                     match_ended = True
             elif curr_match is not None:
                 match_ended = True
@@ -333,13 +332,10 @@ class DROLoopAnalyzer(object):
         notable_threshold = 10
 
         # Try and find sections with large chunks of instructions before a delay.
-        dro_data = dro_song.data
         sections = []
         curr_section = self.Match()
-        for i, datum in enumerate(dro_data):
-            reg = datum[0]
-            if reg not in (dro_song.short_delay_code,
-                           dro_song.long_delay_code):
+        for i, inst in enumerate(dro_song.data):
+            if inst.inst_type != dro_data.DROInstruction.T_DELAY:
                 if curr_section.start is None:
                     curr_section.start = i
                 curr_section.length += 1
@@ -351,7 +347,7 @@ class DROLoopAnalyzer(object):
 
         # If we've got a hanging section left over, finish it off.
         if curr_section.start is not None and curr_section.end is None:
-            curr_section.end = len(dro_data) - 1
+            curr_section.end = len(dro_song.data) - 1
             if curr_section.length >= notable_threshold:
                 sections.append(curr_section)
 
@@ -375,21 +371,20 @@ class DROLoopAnalyzer(object):
         find the longest matching blocks in each half.
         """
         result_str = ""
-        dro_data = dro_song.data
         # Split the data in half and see what the largest matching block is.
         # This will give us an indication on whether or not the song loops, and if so,
         #  where the loop points are.
         sm = difflib.SequenceMatcher()
-        tmp_len = len(dro_data) / 2
-        tmp_a = dro_data[:tmp_len]
-        tmp_b = dro_data[tmp_len:]
+        tmp_len = len(dro_song.data) / 2
+        tmp_a = dro_song.data[:tmp_len]
+        tmp_b = dro_song.data[tmp_len:]
         sm.set_seqs(tmp_a, tmp_b)
         #result1 = sm.get_matching_blocks()
         #print result1
 
-        # We have to do "len(dro_data) - tmp_len" because of rounding when
+        # We have to do "len(dro_song.data) - tmp_len" because of rounding when
         #  dividing by two earlier.
-        result = sm.find_longest_match(0, tmp_len, 0, len(dro_data) - tmp_len)
+        result = sm.find_longest_match(0, tmp_len, 0, len(dro_song.data) - tmp_len)
         result_str += ("Result of analysis:\n longest block = " + str(result[2]) +
                        ",\n start first half = " + str(result[0]) +
                        ",\n start second half = " + str(result[1] + tmp_len) + "\n")
@@ -404,16 +399,15 @@ class DROLoopAnalyzer(object):
         #  suitable for trimming.
 
         # If first instruction is note off, alert user
-        cmd = dro_data[result[0]][0]
-        if dro_song.file_version == DRO_FILE_V2 and cmd not in (dro_song.short_delay_code, dro_song.long_delay_code):
-            cmd = dro_song.codemap[cmd & 0x7F]
-        if cmd in range(0xB0, 0xB9):
+        inst = dro_song.data[result[0]]
+        if (inst.inst_type == dro_data.DROInstruction.T_REGISTER and
+            inst.value in range(0xB0, 0xB9)):
             result_str += ("Note: The first instruction in the matched block was a key on/off. There may be " +
                            "a more appropriate block earlier in the song.\n")
 
         # Now search for the first delay
-        for i, inst in enumerate(dro_data):
-            if inst[0] in (dro_song.short_delay_code, dro_song.long_delay_code):
+        for i, inst in enumerate(dro_song.data):
+            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 result_str += ("First delay at pos = " + str(i) + "\n")
                 break
 
@@ -447,51 +441,33 @@ class DRODetailedRegisterAnalyzer(object):
         self.state_descriptions = []
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
-            self.__analyze_dro1(dro_song)
+            opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
         elif dro_song.file_version == DRO_FILE_V2:
-            self.__analyze_dro2(dro_song)
+            opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
         else:
             raise (DROTrimmerException("Unrecognised DRO version: %s. Cannot perform state analysis." %
                                        (dro_song.file_version,)))
+        for inst in dro_song.data:
+            if self._stop.isSet():
+                return
+            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+                self.state_descriptions.append(
+                    (self.current_bank, "Delay: %s ms" % (inst.value,)))
+            elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
+                self.current_bank = inst.value
+                self.state_descriptions.append(
+                    (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],))
+                )
+            else:
+                if inst.bank is not None:
+                    self.current_bank = inst.bank
+                desc = self.__analyze_and_update_register(self.current_bank,
+                                                          inst.command,
+                                                          inst.value,
+                                                          opl_type)
+                self.state_descriptions.append(
+                    (self.current_bank, desc))
         return self.state_descriptions
-
-    def __analyze_dro1(self, dro_song):
-        opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
-        for cmd_and_val in dro_song.data:
-            if self._stop.isSet():
-                return
-            cmd = cmd_and_val[0]
-            if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
-                val = cmd_and_val[1]
-                self.state_descriptions.append((self.current_bank, "Delay: %s ms" % (val,)))
-                continue
-            elif cmd in (0x02, 0x03):
-                self.current_bank = cmd - 0x02
-                self.state_descriptions.append((self.current_bank, "Bank switch: %s" % (self.current_bank,)))
-                continue
-            elif cmd == 0x04:
-                reg = cmd_and_val[1]
-                val = cmd_and_val[2]
-            else:
-                reg = cmd_and_val[0]
-                val = cmd_and_val[1]
-
-            self.state_descriptions.append((self.current_bank,
-                                            self.__analyze_and_update_register(self.current_bank, reg, val, opl_type)))
-
-    def __analyze_dro2(self, dro_song):
-        opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
-        for cmd, val in dro_song.data:
-            if self._stop.isSet():
-                return
-            if cmd in (dro_song.short_delay_code, dro_song.long_delay_code):
-                self.state_descriptions.append((self.current_bank, "Delay: %s ms" % val))
-                continue
-            else:
-                self.current_bank = (cmd & 0x80) >> 7
-                reg = dro_song.codemap[cmd & 0x7F]
-            self.state_descriptions.append((self.current_bank,
-                                            self.__analyze_and_update_register(self.current_bank, reg, val, opl_type)))
 
     def __analyze_and_update_register(self, bank, reg, val, opl_type):
         try:

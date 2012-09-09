@@ -37,7 +37,6 @@ DRO_FILE_V2 = 2
 class DROInstruction(object):
     __slots__ = ["inst_type", "command", "value", "bank"]
     T_REGISTER, T_DELAY, T_BANK_SWITCH = range(3)
-    BS_LOW, BS_HIGH = (0x02, 0x03)
 
     def __init__(self, inst_type, command, value, bank=None):
         self.inst_type = inst_type
@@ -52,6 +51,14 @@ class DROInstruction(object):
                 self.value,
                 self.bank))
 
+    def __eq__(self, other):
+        if type(other) == DROInstruction:
+            if (self.inst_type == other.inst_type and
+                self.command == other.command and
+                self.value == other.value and
+                self.bank == other.bank):
+                return True
+        return False
 
 class DRODataFactory(object):
     def __new__(cls, file_version, *args, **kwds):
@@ -69,6 +76,9 @@ class DROData(object):
     """
     def __init__(self, *args, **kwds):
         self.data = array.array('B')
+        self.short_delay_code = None
+        self.long_delay_code = None
+        self.delay_codes = None
 
     def translate_index(self, key):
         raise NotImplementedError()
@@ -93,13 +103,43 @@ class DROData(object):
         else:
             del self.data[first_index:second_index]
 
+    def delete_multiple(self, index_list):
+        for i in index_list:
+            del self[i]
+
     def __getitem__(self, key):
-        real_index = self.translate_index(key)
-        return self.interpret_data(real_index)
+        """ Returns the item, translated from the "logical" index
+        to the real index in the underlying array. The returned item is
+        a DROInstruction object, interpreted from the raw data.
+
+        Support slices, but only return a raw array. (Only like this for one
+        of the analysers, should really return a DROData or something.)"""
+        if type(key) == slice:
+            first_index = None if key.start is None else self.translate_index(key.start)
+            last_index = None if key.stop is None else self.translate_index(key.stop)
+            return self.data[first_index:last_index]
+        else:
+            real_index = self.translate_index(key)
+            return self.interpret_data(real_index)
 
     def __iter__(self):
         for i in self.iter_indexes():
             yield self[i]
+
+    def _insert(self, key, value_array):
+        assert type(value_array) == array.array
+        real_i = self.translate_index(key)
+        self.data[real_i:real_i] = value_array
+
+    def insert_multiple(self, i_and_val_list):
+        key_offset = 0
+        real_offset = 0
+        for i, vals in i_and_val_list:
+            real_i = self.translate_index(i) + real_offset
+            # insert is maybe inefficient, maybe should construct new array
+            self.data[real_i:real_i] = vals
+            key_offset += 1
+            real_offset += len(vals)
 
     def fromfile(self, file_handle, num_entries):
         self.data.fromfile(file_handle, num_entries)
@@ -113,11 +153,39 @@ class DROData(object):
     def raw_iter(self):
         return iter(self.data)
 
+    def get_raw(self, key):
+        first_index = self.translate_index(key)
+        try:
+            second_index = self.translate_index(key + 1)
+        except IndexError:
+            second_index = None
+        if second_index is None:
+            return self.data[first_index:]
+        else:
+            return self.data[first_index:second_index]
+
+    def append_raw(self, value_array):
+        self.data.extend(value_array)
 
 class DRODataV1(DROData):
     def __init__(self, *args, **kwds):
         super(DRODataV1, self).__init__(*args, **kwds)
         self.index_map = [] # keys are indexes.
+        self.short_delay_code = 0x00
+        self.long_delay_code = 0x01
+        self.delay_codes = (self.short_delay_code, self.long_delay_code)
+
+    def delete_multiple(self, index_list):
+        super(DRODataV1, self).delete_multiple(index_list)
+        self.generate_index_map()
+
+    def insert_multiple(self, i_and_val_list):
+        super(DRODataV1, self).insert_multiple(i_and_val_list)
+        self.generate_index_map()
+
+    def append_raw(self, value_array):
+        self.index_map.append(self.raw_len())
+        super(DRODataV1, self).append_raw(value_array)
 
     def translate_index(self, index):
         return self.index_map[index]
@@ -150,7 +218,7 @@ class DRODataV1(DROData):
         return len(self.index_map)
 
     def iter_indexes(self):
-        return iter(self.index_map)
+        return xrange(len(self.index_map))
 
     def generate_index_map(self):
         self.index_map = []
@@ -178,6 +246,7 @@ class DRODataV2(DROData):
         self.codemap = None
         self.short_delay_code = None
         self.long_delay_code = None
+        self.delay_codes = (self.short_delay_code, self.long_delay_code)
 
     def translate_index(self, key):
         return key * 2
@@ -231,7 +300,7 @@ class DROSong(object):
     def getLengthData(self):
         return len(self.data)
 
-    def find_next_instruction(self, start, inst, look_backwards=False):
+    def find_next_instruction(self, start, s_inst, look_backwards=False):
         """ Takes a starting index and register number (as a hex string) or
         a special value of "DLYS", "DLYL" or "BANK", and finds the next
         occurrence of that register after the given index. Returns the index."""
@@ -239,30 +308,27 @@ class DROSong(object):
         # This is nuts. Change the comparison test depending on what we're
         #  looking for.
         i = start
-        if inst == "DLYS":
-            ct = lambda d, inst: d[0] == self.short_delay_code
-        elif inst == "DLYL":
-            ct = lambda d, inst: d[0] == self.long_delay_code
-        elif inst == "DALL":
-            ct = lambda d, inst: d[0] in (self.short_delay_code, self.long_delay_code)
-        elif inst == "BANK":
-            ct = lambda d, inst: d[0] == 0x02 or d[0] == 0x03
-        elif int(inst, 16) <= 0x04: # registers requiring override
-            ct = lambda d, inst: d[0] == 0x04 and d[1] == inst
-            inst = int(inst, 16)
+        if s_inst == "DLYS":
+            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY and datum.command == self.data.short_delay_code
+        elif s_inst == "DLYL":
+            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY and datum.command == self.data.long_delay_code
+        elif s_inst == "DALL":
+            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
+        elif s_inst == "BANK":
+            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_BANK_SWITCH
         else:
-            ct = lambda d, inst: d[0] == inst
-            inst = int(inst, 16)
+            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_REGISTER and datum.command == inst
+            s_inst = int(s_inst, 16)
 
         if look_backwards:
             i -= 2 # so we don't get stuck on the currently selected instruction
             while i >= 0:
-                if ct(self.data[i], inst):
+                if ct(self.data[i], s_inst):
                     return i
                 i -= 1
         else:
             while i < len(self.data):
-                if ct(self.data[i], inst):
+                if ct(self.data[i], s_inst):
                     return i
                 i += 1
 
@@ -271,13 +337,15 @@ class DROSong(object):
     def __insert_instructions(self, index_and_value_list):
         """ Currently just an internal method, used for undoing deletions.
 
-        Note to self: if this gets exposed to outside calls, make it
-        "undoable" too.
+        (Note to self: if this gets exposed to outside calls, make it
+        "undoable" too.)
         """
-        for i, reg_and_val in index_and_value_list:
-            self.data.insert(i, reg_and_val) # inefficient but I'm mega-lazy.
-            if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
-                self.ms_length += reg_and_val[1]
+        self.data.insert_multiple(index_and_value_list)
+        # Keep track of delays inserted, so we can update the total delay count.
+        for i, val in index_and_value_list:
+            inst = self.data[i]
+            if inst.inst_type == DROInstruction.T_DELAY:
+                self.ms_length += inst.value
         # Also need to update our register descriptions, since the data has changed.
         self.generate_detailed_register_descriptions()
 
@@ -287,71 +355,71 @@ class DROSong(object):
 
         Returns a list of tuples, containing the index deleted and the value
         that was stored at that index."""
+        self.stop_detailed_register_descriptions()
+
+        # First, copy the data to be deleted.
         deleted_data = []
-        new_data = []
-        index_set = set(index_list)
-        for i, reg_and_val in enumerate(self.data):
-            if i in index_set:
-                deleted_data.append((i, reg_and_val))
-                if reg_and_val[0] in (self.short_delay_code, self.long_delay_code):
-                    self.ms_length -= reg_and_val[1]
-            else:
-                new_data.append(reg_and_val)
-        self.data = new_data
+        index_list.sort()
+        for i in index_list:
+            # Keep track of delays deleted, so we can update the total delay count.
+            inst = self.data[i]
+            if inst.inst_type == DROInstruction.T_DELAY:
+                self.ms_length -= inst.value
+            deleted_data.append((i, self.data.get_raw(i)))
+        # Now delete each item, in reverse order.
+        index_list.reverse() # hm
+        self.data.delete_multiple(index_list)
         # Also need to update our register descriptions, since the data has changed.
         self.generate_detailed_register_descriptions()
         return deleted_data
 
     def get_register_display(self, item):
-        instr = self.data[item]
-        cmd = instr[0]
-        if cmd == 0x00: # delay, 1-byte
-            return "D-08"
-        elif cmd == 0x01: # delay, 2-bytes?
-            return "D-16"
-        elif cmd == 0x02 or cmd == 0x03: # switch cmd/val pair
+        inst = self.data[item]
+        if inst.inst_type == DROInstruction.T_DELAY:
+            if inst.command == self.data.short_delay_code:
+                return "DLYS"
+            elif inst.command == self.data.long_delay_code:
+                return "DLYL"
+            else:
+                return "???"
+        elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
             return "BANK"
-        elif cmd == 0x04: # reg <- val pair, override
-            return '0x%02X' % (instr[1])
-        else:
-            return '0x%02X' % (instr[0])
+        else: # must be a register instruction
+            return '0x%02X' % (inst.command,)
 
     def get_value_display(self, item):
-        instr = self.data[item]
-        cmd = instr[0]
-        if cmd == 0x00 or cmd == 0x01: # delays
-            return str(instr[1]) + " ms"
-        elif cmd == 0x02: # low cmd/val pair
-            return "low"
-        elif cmd == 0x03: # high cmd/val pair
-            return "high"
-        elif cmd == 0x04: # reg <- val pair, override
-            return '0x%02X (%s)' % (instr[2], instr[2])
-        else:
-            return '0x%02X (%s)' % (instr[1], instr[1])
+        inst = self.data[item]
+        if inst.inst_type == DROInstruction.T_DELAY:
+            return "%d ms" % (inst.value,)
+        elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
+            return ("low", "high")[inst.value]
+        else: # must be a register instruction
+            return '0x%02X (%d)' % (inst.value, inst.value)
 
     def get_instruction_description(self, item):
-        instr = self.data[item]
-        cmd = instr[0]
-        if cmd == 0x00:
-            return "Delay (8-bit)"
-        elif cmd == 0x01:
-            return "Delay (16-bit)"
-        elif cmd == 0x02:
-            return "Switch to low registers (Dual OPL-2 / OPL-3)"
-        elif cmd == 0x03:
-            return "Switch to high registers (Dual OPL-2 / OPL-3)"
-        elif cmd == 0x04:
+        inst = self.data[item]
+        if inst.inst_type == DROInstruction.T_DELAY:
+            if inst.command == self.data.short_delay_code:
+                return "Delay (short)"
+            elif inst.command == self.data.long_delay_code:
+                return "Delay (long)"
+            else:
+                return "???"
+        elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
+            return ("Switch to %s registers (Dual OPL-2 / OPL-3)" %
+                    (("low", "high")[inst.value],))
+        else: # must be a register instruction
             try:
-                reg_desc = regdata.registers[instr[1]]
+                reg_desc = regdata.registers[inst.command]
             except KeyError:
-                reg_desc = "(unknown)"
-            return reg_desc + " (data override)"
-        else:
-            try:
-                reg_desc = regdata.registers[cmd]
-            except KeyError:
-                reg_desc = "(unknown)"
+                # OPL-3 has some special registers that are only in the high bank
+                if inst.bank == 1:
+                    try:
+                        reg_desc = regdata.registers[0x100 | inst.command]
+                    except KeyError:
+                        reg_desc = "(unknown)"
+                else:
+                    reg_desc = "(unknown)"
             return reg_desc
 
     def get_detailed_register_description(self, item):
@@ -369,7 +437,7 @@ class DROSong(object):
             return self.detailed_register_descriptions[item][0]
 
     def generate_detailed_register_descriptions(self):
-        dro_globals.task_master().cancel_task("REG_ANALYSIS")
+        self.stop_detailed_register_descriptions()
         self.detailed_register_descriptions = None
         detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
         # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
@@ -382,7 +450,8 @@ class DROSong(object):
             [self]
         )
 
-
+    def stop_detailed_register_descriptions(self):
+        dro_globals.task_master().cancel_task("REG_ANALYSIS")
 
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
@@ -399,82 +468,7 @@ class DROSongV2(DROSong):
 
     def __init__(self, file_version, name, data, ms_length, opl_type, codemap, short_delay_code, long_delay_code):
         super(DROSongV2, self).__init__(file_version, name, data, ms_length, opl_type)
+        # TODO: remove this, unnecessary
         self.codemap = codemap
         self.short_delay_code = short_delay_code
         self.long_delay_code = long_delay_code
-
-    def find_next_instruction(self, start, s_inst, look_backwards=False):
-        """ Takes a starting index and register number (as a hex string) or
-        a special value of "DLYS" or "DLYL", and finds the next
-        occurrence of that register after the given index. Returns the index."""
-
-        i = start
-        if s_inst == "DLYS":
-            ct = lambda d, inst: d[0] == self.short_delay_code
-        elif s_inst == "DLYL":
-            ct = lambda d, inst: d[0] == self.long_delay_code
-        elif s_inst == "DALL":
-            ct = lambda d, inst: d[0] in (self.short_delay_code, self.long_delay_code)
-        else:
-            def search_func(d, inst):
-                reg, val = d
-                if reg in (self.short_delay_code, self.long_delay_code):
-                    return False
-                reg = self.codemap[d[0] & 0x7F]
-                return reg == inst
-            ct = search_func
-            s_inst = int(s_inst, 16)
-
-        if look_backwards:
-            i -= 2 # so we don't get stuck on the currently selected instruction
-            while i >= 0:
-                if ct(self.data[i], s_inst):
-                    return i
-                i -= 1
-        else:
-            while i < len(self.data):
-                if ct(self.data[i], s_inst):
-                    return i
-                i += 1
-
-        return -1
-
-    def get_register_display(self, item):
-        reg, val = self.data[item]
-        if reg == self.short_delay_code:
-            return "DLYS"
-        elif reg == self.long_delay_code:
-            return "DLYL"
-        else:
-            return '0x%02X' % (self.codemap[reg & 0x7F])
-
-    def get_value_display(self, item):
-        reg, val = self.data[item]
-        if reg in (self.short_delay_code, self.long_delay_code):
-            # Assume long delays have already been left-shifted.
-            return str(val) + " ms"
-        else:
-            return '0x%02X (%s)' % (val, val)
-
-    def get_instruction_description(self, item):
-        reg, val = self.data[item]
-        if reg == self.short_delay_code:
-            return "Delay (short)"
-        elif reg == self.long_delay_code:
-            return "Delay (long)"
-        else:
-            bank = "high" if reg & 0x80 else "low"
-            reg_lookup = reg & 0x7F
-            try:
-                reg_desc = regdata.registers[self.codemap[reg_lookup]]
-            except KeyError:
-                # OPL-3 has some special registers that are only in the high bank
-                if reg & 0x80:
-                    try:
-                        reg_desc = regdata.registers[0x100 | self.codemap[reg_lookup]]
-                    except KeyError:
-                        reg_desc = "(unknown)"
-                else:
-                    reg_desc = "(unknown)"
-            return "%s (%s bank)" % (reg_desc, bank)
-
