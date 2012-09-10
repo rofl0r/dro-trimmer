@@ -92,6 +92,17 @@ class DROData(object):
     def iter_indexes(self):
         raise NotImplementedError()
 
+    def shallow_copy(self, new_data=None):
+        """Copies everything except the actual underlying data. You can pass in
+        new data to assign to the copy."""
+        new_copy = type(self)()
+        new_copy.short_delay_code = self.short_delay_code
+        new_copy.long_delay_code = self.long_delay_code
+        new_copy.delay_codes = self.delay_codes
+        if new_data is not None:
+            new_copy.data = new_data
+        return new_copy
+
     def __delitem__(self, key):
         first_index = self.translate_index(key)
         try:
@@ -117,7 +128,9 @@ class DROData(object):
         if type(key) == slice:
             first_index = None if key.start is None else self.translate_index(key.start)
             last_index = None if key.stop is None else self.translate_index(key.stop)
-            return self.data[first_index:last_index]
+            new_data = self.data[first_index:last_index]
+            new_copy = self.shallow_copy(new_data)
+            return new_copy
         else:
             real_index = self.translate_index(key)
             return self.interpret_data(real_index)
@@ -187,6 +200,12 @@ class DRODataV1(DROData):
         self.index_map.append(self.raw_len())
         super(DRODataV1, self).append_raw(value_array)
 
+    def shallow_copy(self, new_data=None):
+        new_copy = super(DRODataV1, self).shallow_copy(new_data)
+        if new_data is not None:
+            new_copy.generate_index_map()
+        return new_copy
+
     def translate_index(self, index):
         return self.index_map[index]
 
@@ -247,6 +266,11 @@ class DRODataV2(DROData):
         self.short_delay_code = None
         self.long_delay_code = None
         self.delay_codes = (self.short_delay_code, self.long_delay_code)
+
+    def shallow_copy(self, new_data=None):
+        new_copy = super(DRODataV2, self).shallow_copy(new_data)
+        new_copy.codemap = self.codemap
+        return new_copy
 
     def translate_index(self, key):
         return key * 2

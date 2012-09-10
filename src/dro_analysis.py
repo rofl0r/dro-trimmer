@@ -214,18 +214,7 @@ class DROLoopAnalyzer(object):
         # This is because sometimes the looped information has slightly different
         # data.
         original_indexes = []
-        # crap. TODO: proper cloning of DROData objects.
-        if type(dro_song.data) == dro_data.DRODataV1:
-            dro_data_copy = dro_data.DRODataV1()
-        elif type(dro_song.data) == dro_data.DRODataV2:
-            dro_data_copy = dro_data.DRODataV2()
-            dro_data_copy.codemap = dro_song.data.codemap
-        else:
-            raise DROTrimmerException("Unknown type of DRO Data used in analyser: %s" %
-                type(dro_song.data))
-        dro_data_copy.short_delay_code = dro_song.data.short_delay_code
-        dro_data_copy.long_delay_code = dro_song.data.long_delay_code
-        dro_data_copy.delay_codes = dro_song.data.delay_codes
+        dro_data_copy = dro_song.data.shallow_copy()
 
         MIN_DELAY_TO_INCLUDE = 2 # skip delays of 1 ms
         for i, inst in enumerate(dro_song.data):
