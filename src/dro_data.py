@@ -66,7 +66,7 @@ class DROInstruction(object):
                      self.value,
                      self.bank))
 
-    
+
 class DRODataFactory(object):
     def __new__(cls, file_version, *args, **kwds):
         if file_version == DRO_FILE_V1:
@@ -111,17 +111,37 @@ class DROData(object):
         return new_copy
 
     def __delitem__(self, key):
-        first_index = self.translate_index(key)
-        try:
-            second_index = self.translate_index(key + 1)
-        except IndexError:
-            second_index = None
-        if second_index is None:
-            del self.data[first_index:] # possibly dangerous
+        if type(key) == slice:
+            if key.start is None:
+                first_index = None
+            else:
+                first_index = self.translate_index(key.start)
+            if key.stop is None:
+                second_index = None
+            else:
+                try:
+                    second_index = self.translate_index(key.stop + 1)
+                except IndexError:
+                    second_index = None # possibly dangerous
         else:
-            del self.data[first_index:second_index]
+            first_index = self.translate_index(key)
+            try:
+                second_index = self.translate_index(key + 1)
+            except IndexError:
+                second_index = None # possibly dangerous
+        del self.data[first_index:second_index]
 
-    def delete_multiple(self, index_list):
+    def delete_multiple(self, index_list, is_sorted=False):
+        """NOTE: the given index_list will be sorted in-place, and reversed in-place."""
+        # Sort if required
+        if not is_sorted:
+            index_list.sort() # dodgy, hidden side effects
+        index_list.reverse() # dodgy, hidden side effects
+        # We're usually going to delete slices, so convert ranges of
+        #  indexes into slices. Will be more efficient to do one
+        #  deletion of 10000 items, than 10000 deletions of one item.
+        #  (That's my theory, anyway.)
+        index_list = dro_util.condense_slices(index_list)
         for i in index_list:
             del self[i]
 
@@ -195,8 +215,8 @@ class DRODataV1(DROData):
         self.long_delay_code = 0x01
         self.delay_codes = (self.short_delay_code, self.long_delay_code)
 
-    def delete_multiple(self, index_list):
-        super(DRODataV1, self).delete_multiple(index_list)
+    def delete_multiple(self, index_list, is_sorted=False):
+        super(DRODataV1, self).delete_multiple(index_list, is_sorted)
         self.generate_index_map()
 
     def insert_multiple(self, i_and_val_list):
@@ -398,8 +418,7 @@ class DROSong(object):
                 self.ms_length -= inst.value
             deleted_data.append((i, self.data.get_raw(i)))
         # Now delete each item, in reverse order.
-        index_list.reverse() # hm
-        self.data.delete_multiple(index_list)
+        self.data.delete_multiple(index_list, is_sorted=True)
         # Also need to update our register descriptions, since the data has changed.
         self.generate_detailed_register_descriptions()
         return deleted_data
