@@ -60,6 +60,13 @@ class DROInstruction(object):
                 return True
         return False
 
+    def __hash__(self):
+        return hash((self.inst_type,
+                     self.command,
+                     self.value,
+                     self.bank))
+
+    
 class DRODataFactory(object):
     def __new__(cls, file_version, *args, **kwds):
         if file_version == DRO_FILE_V1:
