@@ -436,26 +436,28 @@ class DRODetailedRegisterAnalyzer(object):
         else:
             raise (DROTrimmerException("Unrecognised DRO version: %s. Cannot perform state analysis." %
                                        (dro_song.file_version,)))
-        for inst in dro_song.data:
-            if self._stop.isSet():
-                return
-            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
-                self.state_descriptions.append(
-                    (self.current_bank, "Delay: %s ms" % (inst.value,)))
-            elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
-                self.current_bank = inst.value
-                self.state_descriptions.append(
-                    (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],))
-                )
-            else:
-                if inst.bank is not None:
-                    self.current_bank = inst.bank
-                desc = self.__analyze_and_update_register(self.current_bank,
-                                                          inst.command,
-                                                          inst.value,
-                                                          opl_type)
-                self.state_descriptions.append(
-                    (self.current_bank, desc))
+        # Wait for the data lock to become available.
+        with dro_song.data_lock:
+            for inst in dro_song.data:
+                if self._stop.isSet():
+                    return
+                if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+                    self.state_descriptions.append(
+                        (self.current_bank, "Delay: %s ms" % (inst.value,)))
+                elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
+                    self.current_bank = inst.value
+                    self.state_descriptions.append(
+                        (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],))
+                    )
+                else:
+                    if inst.bank is not None:
+                        self.current_bank = inst.bank
+                    desc = self.__analyze_and_update_register(self.current_bank,
+                                                              inst.command,
+                                                              inst.value,
+                                                              opl_type)
+                    self.state_descriptions.append(
+                        (self.current_bank, desc))
         return self.state_descriptions
 
     def __analyze_and_update_register(self, bank, reg, val, opl_type):

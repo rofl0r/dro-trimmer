@@ -29,6 +29,7 @@ import dro_globals
 import dro_undo
 import dro_util
 import regdata
+import threading
 
 DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
@@ -80,6 +81,7 @@ class DRODataFactory(object):
 class DROData(object):
     """ Wraps around the DRO data, providing access to each instruction,
     while efficiently storing the item in memory.
+    Locking should be performed by
     """
     def __init__(self, *args, **kwds):
         self.data = array.array('B')
@@ -172,14 +174,8 @@ class DROData(object):
         self.data[real_i:real_i] = value_array
 
     def insert_multiple(self, i_and_val_list):
-        key_offset = 0
-        real_offset = 0
-        for i, vals in i_and_val_list:
-            real_i = self.translate_index(i) + real_offset
-            # insert is maybe inefficient, maybe should construct new array
-            self.data[real_i:real_i] = vals
-            key_offset += 1
-            real_offset += len(vals)
+        for i, val in i_and_val_list:
+            self._insert(i, val)
 
     def fromfile(self, file_handle, num_entries):
         self.data.fromfile(file_handle, num_entries)
@@ -207,6 +203,7 @@ class DROData(object):
     def append_raw(self, value_array):
         self.data.extend(value_array)
 
+
 class DRODataV1(DROData):
     def __init__(self, *args, **kwds):
         super(DRODataV1, self).__init__(*args, **kwds)
@@ -220,7 +217,11 @@ class DRODataV1(DROData):
         self.generate_index_map()
 
     def insert_multiple(self, i_and_val_list):
-        super(DRODataV1, self).insert_multiple(i_and_val_list)
+        real_offset = 0
+        for num_inserted, (i, val) in enumerate(i_and_val_list):
+            real_index = self.translate_index(i - num_inserted) + real_offset
+            self.data[real_index:real_index] = val
+            real_offset += len(val)
         self.generate_index_map()
 
     def append_raw(self, value_array):
@@ -234,7 +235,13 @@ class DRODataV1(DROData):
         return new_copy
 
     def translate_index(self, index):
-        return self.index_map[index]
+        try:
+            return self.index_map[index]
+        except IndexError, ie:
+            if index == len(self.index_map):
+                return len(self.data)
+            else:
+                raise ie
 
     def interpret_data(self, real_index):
         cmd = self.data[real_index]
@@ -344,6 +351,7 @@ class DROSong(object):
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
         self.detailed_register_descriptions = None
+        self.data_lock = threading.RLock()
 
     def getLengthMS(self):
         return self.ms_length
@@ -391,7 +399,9 @@ class DROSong(object):
         (Note to self: if this gets exposed to outside calls, make it
         "undoable" too.)
         """
-        self.data.insert_multiple(index_and_value_list)
+        self.stop_detailed_register_descriptions()
+        with self.data_lock:
+            self.data.insert_multiple(index_and_value_list)
         # Keep track of delays inserted, so we can update the total delay count.
         for i, val in index_and_value_list:
             inst = self.data[i]
@@ -418,7 +428,8 @@ class DROSong(object):
                 self.ms_length -= inst.value
             deleted_data.append((i, self.data.get_raw(i)))
         # Now delete each item, in reverse order.
-        self.data.delete_multiple(index_list, is_sorted=True)
+        with self.data_lock:
+            self.data.delete_multiple(index_list, is_sorted=True)
         # Also need to update our register descriptions, since the data has changed.
         self.generate_detailed_register_descriptions()
         return deleted_data
