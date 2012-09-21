@@ -61,6 +61,28 @@ def warning(text):
 def get_exe_path():
     return os.path.dirname(sys.argv[0])
 
+def condense_slices(index_list):
+    """ Assumes index_list is sorted, in either ascending or descending order.
+    Based on http://stackoverflow.com/a/10987875"""
+    start = index_list[0]
+    i = 1
+    c_list = []
+    while i < len(index_list):
+        # Diff != 1? Slice ended, or non-slice value.
+        if abs(index_list[i] - index_list[i - 1]) != 1:
+            end = index_list[i - 1]
+            if start == end:
+                c_list.append(start)
+            else:
+                c_list.append(slice(min(start, end), max(start, end)))
+            start = index_list[i]
+        i += 1
+    if index_list[-1] == start:
+        c_list.append(start)
+    else:
+        c_list.append(slice(min(start, index_list[-1]), max(start, index_list[-1])))
+    return c_list
+
 # These are only used for DRO 1 files...
 def write_char(in_f, val):
     in_f.write(struct.pack("<B", val))

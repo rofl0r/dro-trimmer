@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 
 from __future__ import with_statement
-from dro_data import DRO_FILE_V1, DRO_FILE_V2, DROSong, DROSongV2
+from dro_data import DRO_FILE_V1, DRO_FILE_V2, DROSong, DROSongV2, DRODataV1, DRODataV2, DROInstruction
 from dro_util import *
 
 DRO_HEADER = "DBRAWOPL"
@@ -102,39 +102,9 @@ class DroFileIOv1(object):
             drof.seek(-4, 1)
             dro_opl_type = read_char(drof)
 
-        header_end_pos = drof.tell()
-
-        dro_data = [] # DRO data stored as a list of tuples (instruction + parameter)
-        dro_calc_delay = 0 # should match dro_ms_total by the end
-
-        # Read in and interpret the data stream
-        while drof.tell() - header_end_pos < dro_byte_length:
-            cmd = read_char(drof) #
-            inst = [cmd] # instruction
-            if cmd == 0x00: # delay, 1-byte
-                # I think it's the val + 1 ms for a delay, so a delay of 0 = 1ms
-                tmp_val = read_char(drof) + 1
-                inst.append(tmp_val)
-                dro_calc_delay += tmp_val
-            elif cmd == 0x01: # delay, 2-bytes?
-                tmp_val = read_short(drof) + 1
-                inst.append(tmp_val)
-                dro_calc_delay += tmp_val
-            elif cmd == 0x02: # low cmd/val pair
-                pass
-            elif cmd == 0x03: # high cmd/val pair
-                pass
-            elif cmd == 0x04: # reg <- val pair
-                tmp_val = read_char(drof)
-                tmp_val_2 = read_char(drof)
-                inst.append(tmp_val)
-                inst.append(tmp_val_2)
-            else:
-                tmp_val = read_char(drof)
-                inst.append(tmp_val)
-
-            # Log the data
-            dro_data.append(tuple(inst))
+        dro_data = DRODataV1()
+        dro_data.fromfile(drof, dro_byte_length)
+        dro_data.generate_index_map()
 
         # If we haven't reached the EOF we must have an error somewhere in the code.
         m = drof.read(1)
@@ -151,39 +121,16 @@ class DroFileIOv1(object):
 
         self.write_header(drof, 0, 0, 0) # write a dummy header
 
-        total_size = 0 # keep track of the size of the data (in bytes)
-        total_delay = 0 # keep track of the length of the song (in ms)
-
-        # Each delay is stored - 1, so need to account for that when writing
-        #  the song length.
-
+        total_size = dro_song.data.raw_len()
+        total_delay = 0
+        # Would be nice to use the DROTotalDelayCalculator, but that
+        # introduces a circular import.
+        # (Why don't we use the value stored in the dro_song object? Seems
+        #  to be a discrepancy between how V1 and V2 files write this value)
         for inst in dro_song.data:
-            cmd = inst[0]
-            write_char(drof, cmd)
-            if cmd == 0x00: # (delay 8-bit)
-                # Delays are stored as "delay - 1", but the song length in ms is
-                #  calculated from the original delay. Hence, make a note of the
-                #  original delay, then store the adjusted figure.
-                tmp_val = inst[1]
-                total_delay += tmp_val
-                tmp_val -= 1
-                write_char(drof, tmp_val)
-                total_size += 2
-            elif cmd == 0x01: # delay 16-bit
-                tmp_val = inst[1]
-                total_delay += tmp_val
-                tmp_val -= 1
-                write_short(drof, tmp_val)
-                total_size += 3
-            elif cmd == 0x02 or cmd == 0x03: # switch high/low register pairs
-                total_size += 1
-            elif cmd == 0x04: # command override
-                write_char(drof, inst[1])
-                write_char(drof, inst[2])
-                total_size += 3
-            else: # reg <- vals
-                write_char(drof, inst[1])
-                total_size += 2
+            if inst.inst_type == DROInstruction.T_DELAY:
+                total_delay += inst.value
+        dro_song.data.tofile(drof)
 
         # rewind and rewrite the header
         drof.seek(header_start)
@@ -202,6 +149,10 @@ class DroFileIOv1(object):
 
 class DroFileIOv2(object):
     def read_data(self, file_name, drof):
+        """
+        @type file_name: str
+        @type drof: File
+        """
         (iLengthPairs, iLengthMS, iHardwareType, iFormat, iCompression, iShortDelayCode, iLongDelayCode,
          iCodemapLength) = struct.unpack('<2L6B', drof.read(14))
         codemap = struct.unpack(str(iCodemapLength) + 'B', drof.read(iCodemapLength))
@@ -213,14 +164,12 @@ class DroFileIOv2(object):
             raise DROFileException("DRO v2 file has too many entries in the codemap. Maximum 128, found %s. Is the file corrupt?" %
                 len(codemap))
 
-        dro_data = []
-        for _ in xrange(iLengthPairs):
-            reg, val = struct.unpack('2B', drof.read(2))
-            if reg == iShortDelayCode:
-                val += 1
-            elif reg == iLongDelayCode:
-                val = (val + 1) << 8
-            dro_data.append((reg, val))
+        dro_data = DRODataV2()
+        dro_data.fromfile(drof, iLengthPairs * 2)
+        dro_data.codemap = codemap
+        dro_data.short_delay_code = iShortDelayCode
+        dro_data.long_delay_code = iLongDelayCode
+        dro_data.delay_codes = (iShortDelayCode, iLongDelayCode) # meh
 
         # NOTE: iHardwareType value is different compared to V1. Really should cater for it better by converting to another value.
         return DROSongV2(DRO_FILE_V2, file_name, dro_data, iLengthMS, iHardwareType, codemap, iShortDelayCode, iLongDelayCode)
@@ -228,7 +177,7 @@ class DroFileIOv2(object):
     def write_data(self, drof, dro_song):
         """
         @type drof: File
-        @type drof: DROSongV2
+        @type dro_song: DROSongV2
         """
         # Write the header
         drof.write(
@@ -252,12 +201,8 @@ class DroFileIOv2(object):
             )
         )
         # Write the data
-        for reg, val in dro_song.data:
-            if reg == dro_song.short_delay_code:
-                val -= 1
-            elif reg == dro_song.long_delay_code:
-                val = (val >> 8) - 1
-            drof.write(struct.pack('2B', reg, val))
+        dro_song.data.tofile(drof)
+
 
 
 
