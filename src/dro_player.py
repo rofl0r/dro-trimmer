@@ -24,6 +24,7 @@
 #    THE SOFTWARE.
 
 import threading
+import wave
 import pyaudio
 import pyopl
 import dro_data
@@ -39,21 +40,42 @@ def stopPlayerOnException(func):
     return inner_func
 
 
+class WavRenderer(object):
+    def __init__(self, frequency, bit_depth, channels):
+        self.frequency = frequency
+        self.bit_depth = bit_depth
+        self.channels = channels
+        self.wav = None
+
+    def open(self, wav_fname):
+        self.wav = wave.open(wav_fname, 'wb')
+        self.wav.setnchannels(self.channels)
+        self.wav.setsampwidth(self.bit_depth / 8)
+        self.wav.setframerate(self.frequency)
+
+    def close(self):
+        self.wav.close()
+        self.wav = None # Hm, maybe should leave it hanging around?
+
+    def write(self, data):
+        self.wav.writeframes(data)
+
+
 class OPLStream(object):
     """ Based on demo.py that comes with the PyOPL library.
     """
-    def __init__(self, frequency, buffer_size, bit_depth, channels, audio_stream):
+    def __init__(self, frequency, buffer_size, bit_depth, channels, output_streams):
         """
         @type frequency: int
         @type buffer_size: int
         @type bit_depth: int
-        @type audio_stream: PyAudio
+        @type output_streams: list, containing PyAudio or WavRenderer objects.
         """
         self.frequency = frequency # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
         self.bit_depth = bit_depth
         self.channels = channels
-        self.audio_stream = audio_stream # probably shouldn't be a local property...
+        self.output_streams = output_streams
         self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
         self.buffer = self.__create_bytearray(buffer_size)
         self.pyaudio_buffer = buffer(self.buffer)
@@ -82,11 +104,13 @@ class OPLStream(object):
                 tmp_audio_buffer = self.pyaudio_buffer
                 samples_to_render -= self.buffer_size
             self.opl.getSamples(tmp_buffer)
-            self.audio_stream.write(buffer(tmp_audio_buffer))
+            for ostream in self.output_streams:
+                ostream.write(buffer(tmp_audio_buffer))
 
     def flush(self):
         dummy_data = self.__create_bytearray(self.buffer_size)
-        self.audio_stream.write(buffer(dummy_data))
+        for ostream in self.output_streams:
+            ostream.write(buffer(dummy_data))
 
     def set_high_bank(self):
         self.bank = 1
@@ -119,6 +143,13 @@ class DROPlayer(object):
             channels = self.channels,
             rate = self.frequency,
             output = True)
+        # Set up the WAV Renderer
+        self.wav_renderer = WavRenderer(
+            self.frequency,
+            self.bit_depth,
+            self.channels
+        )
+        # Set up other stuff
         self.opl_stream = None
         self.current_song = None
         self.is_playing = False
@@ -141,7 +172,9 @@ class DROPlayer(object):
         if self.update_thread is not None:
             self.update_thread.stop_request.set()
         self.update_thread = None # This thread gets created only when playing actually begins.
-        self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels, self.audio_stream)
+        self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels,
+            [self.audio_stream, self.wav_renderer])
+        self.wav_renderer.open("temp.wav")
         if (self.current_song is not None
             and self.current_song.file_version == dro_data.DRO_FILE_V1):
             # Hack. DRO V1 files don't seem to set the "Waveform select" register
@@ -164,6 +197,7 @@ class DROPlayer(object):
         if self.opl_stream is not None:
             self.opl_stream.stop_requested = True
             #self.opl_stream.flush()
+        self.wav_renderer.close()
 
     def seek_to_time(self, seek_time):
         seeker = DROSeeker(self)
@@ -256,6 +290,7 @@ class DROPlayerUpdateThread(threading.Thread):
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
                 self.dro_player.is_playing = False
+                self.dro_player.wav_renderer.close() # TODO: fix this, this is terrible. Trigger an event?
 
 
 def main():
