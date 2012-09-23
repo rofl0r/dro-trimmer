@@ -23,12 +23,17 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import optparse
+import os
+import sys
 import threading
+import time
 import wave
 import pyaudio
 import pyopl
 import dro_data
 import dro_util
+import dro_io
 
 def stopPlayerOnException(func):
     def inner_func(self, *args, **kwds):
@@ -46,6 +51,8 @@ class WavRenderer(object):
         self.bit_depth = bit_depth
         self.channels = channels
         self.wav = None
+        self.wav_fname = None
+        self.wav_lock = threading.RLock()
 
     def open(self, wav_fname):
         self.wav = wave.open(wav_fname, 'wb')
@@ -54,11 +61,15 @@ class WavRenderer(object):
         self.wav.setframerate(self.frequency)
 
     def close(self):
-        self.wav.close()
-        self.wav = None # Hm, maybe should leave it hanging around?
+        with self.wav_lock:
+            if self.wav is not None:
+                self.wav.close()
+                self.wav = None # Hm, maybe should leave it hanging around?
 
     def write(self, data):
-        self.wav.writeframes(data)
+        with self.wav_lock:
+            if self.wav is not None:
+                self.wav.writeframes(data)
 
 
 class OPLStream(object):
@@ -121,6 +132,7 @@ class OPLStream(object):
     def set_bank(self, bank):
         self.bank = bank
 
+
 class DROPlayer(object):
     def __init__(self):
         # TODO: move config reading somewhere else
@@ -157,6 +169,9 @@ class DROPlayer(object):
         self.time_elapsed = 0
         self.update_thread = None
 
+        self.sound_on = True
+        self.recording_on = False
+
     def load_song(self, new_song):
         """
         @type new_song: DROSongV2
@@ -172,14 +187,23 @@ class DROPlayer(object):
         if self.update_thread is not None:
             self.update_thread.stop_request.set()
         self.update_thread = None # This thread gets created only when playing actually begins.
+        output_streams = []
+        if self.sound_on:
+            output_streams.append(self.audio_stream)
+        if self.recording_on:
+            output_streams.append(self.wav_renderer)
         self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels,
-            [self.audio_stream, self.wav_renderer])
-        self.wav_renderer.open("temp.wav")
-        if (self.current_song is not None
-            and self.current_song.file_version == dro_data.DRO_FILE_V1):
-            # Hack. DRO V1 files don't seem to set the "Waveform select" register
-            # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
-            self.opl_stream.write(1, 32)
+                                    output_streams)
+        if self.current_song is not None:
+            if self.current_song.file_version == dro_data.DRO_FILE_V1:
+                # Hack. DRO V1 files don't seem to set the "Waveform select" register
+                # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
+                self.opl_stream.write(1, 32)
+
+            self.wav_renderer.open("%s.wav" % (self.current_song.name,))
+
+    def close_output_streams(self):
+        self.wav_renderer.close()
 
     def play(self):
         self.is_playing = True
@@ -280,6 +304,7 @@ class DROPlayerUpdateThread(threading.Thread):
             inst = self.dro_player.current_song.data[self.dro_player.pos]
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 self.dro_player.opl_stream.render(inst.value)
+                self.dro_player.time_elapsed += inst.value
             elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
                 self.dro_player.opl_stream.set_bank(inst.value) # DRO v1
             #elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
@@ -290,28 +315,32 @@ class DROPlayerUpdateThread(threading.Thread):
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
                 self.dro_player.is_playing = False
-                self.dro_player.wav_renderer.close() # TODO: fix this, this is terrible. Trigger an event?
+        self.dro_player.close_output_streams() # TODO: move this somewhere else. Maybe trigger an event?
 
+
+def __parse_arguments():
+    parser = optparse.OptionParser()
+    parser.add_option("-r", "--render", action="store_true", dest="render", default=False,
+                      help="Render the song to a WAV file. Sound output is disabled.")
+    return parser.parse_args()
 
 def main():
     """ As a bonus, this module can be used as a standalone program to play a DRO song!
     """
-    import dro_io
-    import os
-    import sys
-    import time
-
-    if len(sys.argv) < 2:
+    options, args = __parse_arguments()
+    if len(args) < 1:
         print "Pass the name of the song to play as the first argument. e.g. 'dro_player cdshock_000.dro'"
         return 1
 
-    song_to_play = sys.argv[1]
+    song_to_play = args[0]
     if not os.path.isfile(song_to_play):
         print "Song does not appear to exist, or is not a file: %s" % song_to_play
         return 3
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)
     dro_player = DROPlayer()
+    dro_player.sound_on = not options.render
+    dro_player.recording_on = options.render
     dro_player.load_song(dro_song)
     print str(dro_song)
 
@@ -324,14 +353,22 @@ def main():
     time_elapsed = 0
     dro_player.play()
     try:
-        while dro_player.is_playing:
-            # Pretty rough way of keeping time.
-            sys.stdout.write("\r" + ms_to_timestr(time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
-            sys.stdout.flush()
-            time.sleep(1)
-            time_elapsed += 1000
-        # Print the end time too (but cheat)
-        sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
+        if options.render:
+            while dro_player.is_playing:
+                sys.stdout.write("\r" + ms_to_timestr(dro_player.time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
+                sys.stdout.flush()
+                time.sleep(0.1)
+            # Print the end time too (but cheat)
+            sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
+        else:
+            while dro_player.is_playing:
+                # Pretty rough way of keeping time.
+                sys.stdout.write("\r" + ms_to_timestr(time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
+                sys.stdout.flush()
+                time.sleep(1)
+                time_elapsed += 1000
+            # Print the end time too (but cheat)
+            sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
     except KeyboardInterrupt, ke:
         if dro_player.is_playing:
             dro_player.stop()
@@ -341,5 +378,4 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main())
