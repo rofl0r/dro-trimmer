@@ -54,8 +54,11 @@ class WavRenderer(object):
         self.wav_fname = None
         self.wav_lock = threading.RLock()
 
-    def open(self, wav_fname):
+    def open(self, wav_fname=None):
+        if wav_fname is None:
+            wav_fname = self.wav_fname
         self.wav = wave.open(wav_fname, 'wb')
+        self.wav_fname = wav_fname
         self.wav.setnchannels(self.channels)
         self.wav.setsampwidth(self.bit_depth / 8)
         self.wav.setframerate(self.frequency)
@@ -65,6 +68,7 @@ class WavRenderer(object):
             if self.wav is not None:
                 self.wav.close()
                 self.wav = None # Hm, maybe should leave it hanging around?
+                self.wav_fname = None
 
     def write(self, data):
         with self.wav_lock:
@@ -134,6 +138,7 @@ class OPLStream(object):
 
 
 class DROPlayer(object):
+    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB9) + [0xBD,])
     def __init__(self):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
@@ -168,9 +173,9 @@ class DROPlayer(object):
         self.pos = 0
         self.time_elapsed = 0
         self.update_thread = None
-
         self.sound_on = True
         self.recording_on = False
+        self.active_channels = set(self.CHANNEL_REGISTERS)
 
     def load_song(self, new_song):
         """
@@ -200,13 +205,18 @@ class DROPlayer(object):
                 # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
                 self.opl_stream.write(1, 32)
 
-            self.wav_renderer.open("%s.wav" % (self.current_song.name,))
-
     def close_output_streams(self):
         self.wav_renderer.close()
 
+    def set_wav_fname(self, wav_fname):
+        self.wav_renderer.wav_fname = wav_fname
+
     def play(self):
         self.is_playing = True
+        if self.wav_renderer.wav_fname is None:
+            self.wav_renderer.open("%s.wav" % (self.current_song.name,))
+        else:
+            self.wav_renderer.open()
         self.update_thread = DROPlayerUpdateThread(self, self.current_song)
         self.update_thread.start()
 
@@ -295,12 +305,27 @@ class DROPlayerUpdateThread(threading.Thread):
         self.dro_player = dro_player # circular reference, yuck
         self.current_song = current_song
         self.stop_request = threading.Event()
+        self.active_channels = set(self.dro_player.active_channels)
 
     @stopPlayerOnException
     def run(self):
         while (self.dro_player.pos < len(self.current_song.data)
                and self.dro_player.is_playing
                and not self.stop_request.isSet()):
+            # First, check if we need to mute a channel register.
+            new_muted_channels = self.active_channels - self.dro_player.active_channels
+            orig_bank = self.dro_player.opl_stream.bank
+            for channel in new_muted_channels:
+                self.dro_player.opl_stream.set_bank(0)
+                self.dro_player.opl_stream.write(channel, 0x00)
+                self.dro_player.opl_stream.set_bank(1)
+                self.dro_player.opl_stream.write(channel, 0x00)
+            del orig_bank
+            # Check if we need to unmute a channel register (also remove muted channels).
+            if self.dro_player.active_channels ^ self.active_channels:
+                self.active_channels = set(self.dro_player.active_channels)
+
+            # Process the instruction.
             inst = self.dro_player.current_song.data[self.dro_player.pos]
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 self.dro_player.opl_stream.render(inst.value)
@@ -311,11 +336,65 @@ class DROPlayerUpdateThread(threading.Thread):
             else:
                 if inst.bank is not None: # DRO v2
                     self.dro_player.opl_stream.set_bank(inst.bank)
-                self.dro_player.opl_stream.write(inst.command, inst.value)
+                # Check if this is a channel register, and if so, if it should be muted.
+                if ((not inst.command in self.dro_player.CHANNEL_REGISTERS) or
+                    (inst.command in self.active_channels)):
+                    self.dro_player.opl_stream.write(inst.command, inst.value)
+
+            # Update position and stop if no more instructions.
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
                 self.dro_player.is_playing = False
         self.dro_player.close_output_streams() # TODO: move this somewhere else. Maybe trigger an event?
+
+
+class TrackSplitter(object):
+    def __init__(self):
+        pass
+
+    def split_tracks(self, dro_name):
+        file_reader = dro_io.DroFileIO()
+        dro_song = file_reader.read(dro_name)
+        dro_player = DROPlayer()
+        dro_player.sound_on = False
+        dro_player.recording_on = True
+        dro_player.load_song(dro_song)
+
+
+class _CommandLineInputThread(threading.Thread):
+    def __init__(self, dro_player):
+        super(_CommandLineInputThread, self).__init__()
+        self.time_elapsed = dro_player
+        self.stop_request = threading.Event()
+
+    def run(self):
+        while not self.stop_request.isSet():
+            # Check for user input.
+            chin = dro_util.getch()
+            if chin:
+                if ord(chin) >= 48 and ord(chin) <= 57:
+                    channel = 0xB0 + int(chin) - 1
+                    self.dro_player.active_channels = set([channel])
+            time.sleep(0.1)
+
+
+class _TimerUpdateThread(threading.Thread):
+    def __init__(self, dro_song):
+        super(_TimerUpdateThread, self).__init__()
+        self.time_elapsed = 0
+        self.dro_song = dro_song
+        self.stop_request = threading.Event()
+
+    def run(self):
+        while not self.stop_request.isSet():
+            # Pretty rough way of keeping time.
+            sys.stdout.write("\r" +
+                             dro_util.ms_to_timestr(self.time_elapsed) +
+                             " / " +
+                             dro_util.ms_to_timestr(self.dro_song.ms_length))
+            sys.stdout.flush()
+            time.sleep(1)
+            self.time_elapsed += 1000
 
 
 def __parse_arguments():
@@ -341,40 +420,49 @@ def main():
     dro_player = DROPlayer()
     dro_player.sound_on = not options.render
     dro_player.recording_on = options.render
+    dro_player.active_channels.intersection_update(set([0xB0]))
     dro_player.load_song(dro_song)
     print str(dro_song)
 
-    def ms_to_timestr(ms_val):
-        # Stolen from StackOverflow, post by Sven Marnach
-        minutes, milliseconds = divmod(ms_val, 60000)
-        seconds = float(milliseconds) / 1000
-        return "%02i:%02i" % (minutes, seconds)
-
+    timer_thread = None
     time_elapsed = 0
     dro_player.play()
     try:
         if options.render:
             while dro_player.is_playing:
-                sys.stdout.write("\r" + ms_to_timestr(dro_player.time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
+                sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
                 sys.stdout.flush()
-                time.sleep(0.1)
+                time.sleep(0.05)
             # Print the end time too (but cheat)
-            sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
+            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
         else:
+            timer_thread = _TimerUpdateThread(dro_song)
+            timer_thread.start()
             while dro_player.is_playing:
-                # Pretty rough way of keeping time.
-                sys.stdout.write("\r" + ms_to_timestr(time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
-                sys.stdout.flush()
-                time.sleep(1)
-                time_elapsed += 1000
+                # Check for user input.
+                chin = dro_util.getch()
+                if chin:
+                    if 48 <= ord(chin) <= 57:
+                        if int(chin) == 0:
+                            channel = 0xBD
+                        else:
+                            channel = 0xB0 + int(chin) - 1
+                        dro_player.active_channels = set([channel])
+                time.sleep(0.01)
             # Print the end time too (but cheat)
-            sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
+            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
     except KeyboardInterrupt, ke:
-        if dro_player.is_playing:
-            dro_player.stop()
+        pass
     except Exception, e:
         print e
         return 2
+    finally:
+        if dro_player.is_playing:
+            dro_player.stop()
+        if timer_thread is not None:
+            timer_thread.stop_request.set()
+            if timer_thread.isAlive(): # not quite right, but meh.
+                timer_thread.join()
     return 0
 
 if __name__ == "__main__":

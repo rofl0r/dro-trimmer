@@ -115,9 +115,11 @@ class DTApp(wx.App):
             "Open DRO",
             wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
             style=wx.OPEN|wx.FILE_MUST_EXIST|wx.CHANGE_DIR)
-        if od.ShowModal() == wx.ID_OK:
-            filename = od.GetPath()
-
+        result = od.ShowModal()
+        filename = od.GetPath()
+        od.Destroy()
+        del od
+        if result == wx.ID_OK:
             importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
 
