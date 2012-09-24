@@ -138,7 +138,7 @@ class OPLStream(object):
 
 
 class DROPlayer(object):
-    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB9) + [0xBD,])
+    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1) + [0xBD,])
     def __init__(self):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
@@ -361,23 +361,6 @@ class TrackSplitter(object):
         dro_player.load_song(dro_song)
 
 
-class _CommandLineInputThread(threading.Thread):
-    def __init__(self, dro_player):
-        super(_CommandLineInputThread, self).__init__()
-        self.time_elapsed = dro_player
-        self.stop_request = threading.Event()
-
-    def run(self):
-        while not self.stop_request.isSet():
-            # Check for user input.
-            chin = dro_util.getch()
-            if chin:
-                if ord(chin) >= 48 and ord(chin) <= 57:
-                    channel = 0xB0 + int(chin) - 1
-                    self.dro_player.active_channels = set([channel])
-            time.sleep(0.1)
-
-
 class _TimerUpdateThread(threading.Thread):
     def __init__(self, dro_song):
         super(_TimerUpdateThread, self).__init__()
@@ -401,6 +384,8 @@ def __parse_arguments():
     parser = optparse.OptionParser()
     parser.add_option("-r", "--render", action="store_true", dest="render", default=False,
                       help="Render the song to a WAV file. Sound output is disabled.")
+    parser.add_option("-s", "--split-tracks", action="store_true", dest="split_tracks", default=False,
+                      help="Renders each channel to a separate WAV file. Sound output is disabled.")
     return parser.parse_args()
 
 def main():
@@ -410,25 +395,38 @@ def main():
     if len(args) < 1:
         print "Pass the name of the song to play as the first argument. e.g. 'dro_player cdshock_000.dro'"
         return 1
-
     song_to_play = args[0]
     if not os.path.isfile(song_to_play):
         print "Song does not appear to exist, or is not a file: %s" % song_to_play
         return 3
+
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)
     dro_player = DROPlayer()
-    dro_player.sound_on = not options.render
-    dro_player.recording_on = options.render
-    dro_player.active_channels.intersection_update(set([0xB0]))
+    dro_player.sound_on = not (options.render or options.split_tracks)
+    dro_player.recording_on = options.render or options.split_tracks
+    #dro_player.active_channels.intersection_update(set([0xB0]))
     dro_player.load_song(dro_song)
     print str(dro_song)
 
     timer_thread = None
-    time_elapsed = 0
-    dro_player.play()
     try:
-        if options.render:
+        if options.split_tracks:
+            for channel in sorted(list(dro_player.CHANNEL_REGISTERS)):
+                dro_player.reset()
+                dro_player.active_channels = set([channel])
+                channel_num = channel - 0xAF
+                dro_player.set_wav_fname("%s.%02i.wav" % (dro_song.name,channel_num))
+                dro_player.play()
+                while dro_player.is_playing:
+                    sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+                    sys.stdout.flush()
+                    time.sleep(0.05)
+                sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+                print " - Finished rendering channel %02i" % (channel_num,)
+            print "Done!"
+        elif options.render:
+            dro_player.play()
             while dro_player.is_playing:
                 sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
                 sys.stdout.flush()
@@ -436,6 +434,7 @@ def main():
             # Print the end time too (but cheat)
             sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
         else:
+            dro_player.play()
             timer_thread = _TimerUpdateThread(dro_song)
             timer_thread.start()
             while dro_player.is_playing:
@@ -448,6 +447,8 @@ def main():
                         else:
                             channel = 0xB0 + int(chin) - 1
                         dro_player.active_channels = set([channel])
+                    elif chin == "`" or chin == "~":
+                        dro_player.active_channels = set(dro_player.CHANNEL_REGISTERS)
                 time.sleep(0.01)
             # Print the end time too (but cheat)
             sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
