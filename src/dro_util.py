@@ -174,7 +174,8 @@ class _GetchWindows:
 
     def __call__(self):
         import msvcrt
-        return msvcrt.getch()
+        if msvcrt.kbhit():
+            return msvcrt.getch()
 
 getch = _Getch()
 ## end of http://code.activestate.com/recipes/134892/ }}}

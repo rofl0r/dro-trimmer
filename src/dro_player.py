@@ -393,8 +393,8 @@ class _TimerUpdateThread(threading.Thread):
                              " / " +
                              dro_util.ms_to_timestr(self.dro_song.ms_length))
             sys.stdout.flush()
-            time.sleep(1)
-            self.time_elapsed += 1000
+            time.sleep(0.01)
+            self.time_elapsed += 10
 
 
 def __parse_arguments():
