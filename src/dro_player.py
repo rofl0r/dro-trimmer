@@ -31,6 +31,7 @@ import time
 import wave
 import pyaudio
 import pyopl
+import dro_analysis
 import dro_data
 import dro_util
 import dro_io
@@ -138,7 +139,8 @@ class OPLStream(object):
 
 
 class DROPlayer(object):
-    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1) + [0xBD,])
+    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1) + [0xBD,] +
+                                  range(0x1B0, 0x1B8 + 1) + [0x1BD,])
     def __init__(self):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
@@ -316,10 +318,8 @@ class DROPlayerUpdateThread(threading.Thread):
             new_muted_channels = self.active_channels - self.dro_player.active_channels
             orig_bank = self.dro_player.opl_stream.bank
             for channel in new_muted_channels:
-                self.dro_player.opl_stream.set_bank(0)
-                self.dro_player.opl_stream.write(channel, 0x00)
-                self.dro_player.opl_stream.set_bank(1)
-                self.dro_player.opl_stream.write(channel, 0x00)
+                self.dro_player.opl_stream.set_bank((channel & 0x100) >> 8)
+                self.dro_player.opl_stream.write(channel & 0xFF, 0x00)
             del orig_bank
             # Check if we need to unmute a channel register (also remove muted channels).
             if self.dro_player.active_channels ^ self.active_channels:
@@ -338,7 +338,7 @@ class DROPlayerUpdateThread(threading.Thread):
                     self.dro_player.opl_stream.set_bank(inst.bank)
                 # Check if this is a channel register, and if so, if it should be muted.
                 if ((not inst.command in self.dro_player.CHANNEL_REGISTERS) or
-                    (inst.command in self.active_channels)):
+                    ((self.dro_player.opl_stream.bank << 8) | inst.command in self.active_channels)):
                     self.dro_player.opl_stream.write(inst.command, inst.value)
 
             # Update position and stop if no more instructions.
@@ -346,19 +346,6 @@ class DROPlayerUpdateThread(threading.Thread):
             if self.dro_player.pos >= len(self.current_song.data):
                 self.dro_player.is_playing = False
         self.dro_player.close_output_streams() # TODO: move this somewhere else. Maybe trigger an event?
-
-
-class TrackSplitter(object):
-    def __init__(self):
-        pass
-
-    def split_tracks(self, dro_name):
-        file_reader = dro_io.DroFileIO()
-        dro_song = file_reader.read(dro_name)
-        dro_player = DROPlayer()
-        dro_player.sound_on = False
-        dro_player.recording_on = True
-        dro_player.load_song(dro_song)
 
 
 class _TimerUpdateThread(threading.Thread):
@@ -379,6 +366,31 @@ class _TimerUpdateThread(threading.Thread):
             time.sleep(0.01)
             self.time_elapsed += 10
 
+
+def split_tracks(dro_player, dro_song):
+    # First, analyse
+    usage_analyzer = dro_analysis.DRORegisterUsageAnalyzer()
+    usage = usage_analyzer.analyze_dro(dro_song)
+    channels_to_render = sorted(list(dro_player.CHANNEL_REGISTERS))
+    if dro_song.OPL_TYPE_MAP[dro_song.opl_type] == "OPL-2":
+        channels_to_render = [ctr for ctr in channels_to_render if ctr < 0x100]
+    for channel in channels_to_render:
+        channel_num = (channel & 0xFF) - 0xAF
+        bank_num = (channel & 0x100) >> 8
+        if usage[channel] == 0:
+            print "Skipping bank %01i, channel %02i" % (bank_num, channel_num,)
+            continue
+        dro_player.reset()
+        dro_player.active_channels = set([channel])
+        dro_player.set_wav_fname("%s.%01i.%02i.wav" % (dro_song.name, bank_num, channel_num))
+        dro_player.play()
+        while dro_player.is_playing:
+            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+            sys.stdout.flush()
+            time.sleep(0.05)
+        sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+        print " - Finished rendering bank %01i, channel %02i" % (bank_num, channel_num,)
+    print "Done!"
 
 def __parse_arguments():
     parser = optparse.OptionParser()
@@ -412,19 +424,7 @@ def main():
     timer_thread = None
     try:
         if options.split_tracks:
-            for channel in sorted(list(dro_player.CHANNEL_REGISTERS)):
-                dro_player.reset()
-                dro_player.active_channels = set([channel])
-                channel_num = channel - 0xAF
-                dro_player.set_wav_fname("%s.%02i.wav" % (dro_song.name,channel_num))
-                dro_player.play()
-                while dro_player.is_playing:
-                    sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
-                    sys.stdout.flush()
-                    time.sleep(0.05)
-                sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
-                print " - Finished rendering channel %02i" % (channel_num,)
-            print "Done!"
+            split_tracks(dro_player, dro_song)
         elif options.render:
             dro_player.play()
             while dro_player.is_playing:
@@ -437,6 +437,7 @@ def main():
             dro_player.play()
             timer_thread = _TimerUpdateThread(dro_song)
             timer_thread.start()
+            bank = 0
             while dro_player.is_playing:
                 # Check for user input.
                 chin = dro_util.getch()
@@ -446,9 +447,14 @@ def main():
                             channel = 0xBD
                         else:
                             channel = 0xB0 + int(chin) - 1
+                        channel |= (bank << 8)
                         dro_player.active_channels = set([channel])
                     elif chin == "`" or chin == "~":
                         dro_player.active_channels = set(dro_player.CHANNEL_REGISTERS)
+                    elif chin == "-" or chin == "_":
+                        bank = 0
+                    elif chin == "=" or chin == "+":
+                        bank = 1
                 time.sleep(0.01)
             # Print the end time too (but cheat)
             sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))

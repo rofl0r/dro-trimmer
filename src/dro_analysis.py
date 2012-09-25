@@ -23,6 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+from collections import defaultdict
 import difflib
 import itertools
 import threading
@@ -484,3 +485,20 @@ class DRODetailedRegisterAnalyzer(object):
 
         return ' / '.join(changed_desc) if len(changed_desc) else '(no changes)'
 
+
+class DRORegisterUsageAnalyzer(object):
+    def __init__(self):
+        pass
+
+    def analyze_dro(self, dro_song):
+        usage = defaultdict(int)
+        with dro_song.data_lock:
+            bank = 0
+            for inst in dro_song.data:
+                if inst.bank is not None:
+                    bank = inst.bank
+                if inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
+                    bank = inst.value
+                if inst.inst_type == dro_data.DROInstruction.T_REGISTER:
+                    usage[(bank << 8) | inst.command] += 1
+        return usage
