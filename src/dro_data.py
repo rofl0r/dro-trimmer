@@ -38,6 +38,7 @@ DRO_FILE_V2 = 2
 class DROInstruction(object):
     __slots__ = ["inst_type", "command", "value", "bank"]
     T_REGISTER, T_DELAY, T_BANK_SWITCH = range(3)
+    TYPE_MAP = ["T_REGISTER", "T_DELAY", "T_BANK_SWITCH"]
 
     def __init__(self, inst_type, command, value, bank=None):
         self.inst_type = inst_type
@@ -46,8 +47,8 @@ class DROInstruction(object):
         self.bank = bank
 
     def __repr__(self):
-        return ("DROInstruction(%s, %s, %s, %s)" %
-            (self.inst_type,
+        return ("DROInstruction(DROInstruction.%s, %s, %s, bank=%s)" %
+            (self.TYPE_MAP[self.inst_type],
                 self.command,
                 self.value,
                 self.bank))

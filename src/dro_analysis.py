@@ -491,6 +491,10 @@ class DRORegisterUsageAnalyzer(object):
         pass
 
     def analyze_dro(self, dro_song):
+        """Returns a dict.
+        Keys are registers, with the bank set in bit 0x100. e.g.
+         register 0xDB on the high bank will return a key of 0x1DB.
+        Values are the number of times that register is used in the DRO file."""
         usage = defaultdict(int)
         with dro_song.data_lock:
             bank = 0
@@ -502,3 +506,14 @@ class DRORegisterUsageAnalyzer(object):
                 if inst.inst_type == dro_data.DROInstruction.T_REGISTER:
                     usage[(bank << 8) | inst.command] += 1
         return usage
+
+class DRODebugAnalyzer(object):
+    def __init__(self):
+        pass
+
+    def analyze_dro(self, dro_song):
+        """Prints out the DRO song info, then prints each instruction."""
+        with dro_song.data_lock:
+            print dro_song
+            for inst in dro_song.data:
+                print inst
