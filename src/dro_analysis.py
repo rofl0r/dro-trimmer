@@ -518,7 +518,7 @@ class DRORegisterUsageAnalyzer(object):
                     if inst.command == self.PERC_CHANNEL and self.detailed_percussion_analysis:
                         # Go through all bitmasks, mark any usages.
                         for i, pb in enumerate(perc_bitmasks):
-                            if inst.value ^ pb.mask:
+                            if inst.value & pb.mask:
                                 self.perc_usage[(bank << 8) | pb.mask] = True
         return self.usage, self.perc_usage
 

@@ -45,6 +45,9 @@ def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
     percs = sorted([p for p in perc_usage.keys() if perc_usage[p] and p <= 16])
     channel = (bank_num << 8) | 0xBD
     channel_num = (channel & 0xFF) - 0xAF
+    if not len(percs):
+        print "Skipping bank %01i, perc channel" % (bank_num,)
+        return
     for p in percs:
         inst_num = int(math.log(p, 2))
         player.reset()
@@ -66,7 +69,6 @@ def split_tracks(player, dro_song, isolate_percussion=False):
     # First, analyse to identify channels that aren't used.
     usage_analyzer = dro_analysis.DRORegisterUsageAnalyzer(detailed_percussion_analysis=True)
     usage, perc_usage = usage_analyzer.analyze_dro(dro_song)
-    print perc_usage
     channels_to_render = sorted(list(player.CHANNEL_REGISTERS)) + [0xBD, 0x1BD]
     if dro_song.OPL_TYPE_MAP[dro_song.opl_type] == "OPL-2":
         channels_to_render = [ctr for ctr in channels_to_render if ctr < 0x100]
