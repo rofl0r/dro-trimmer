@@ -487,15 +487,25 @@ class DRODetailedRegisterAnalyzer(object):
 
 
 class DRORegisterUsageAnalyzer(object):
-    def __init__(self):
-        pass
+    PERC_CHANNEL = 0xBD
+
+    def __init__(self, detailed_percussion_analysis=False):
+        self.detailed_percussion_analysis = detailed_percussion_analysis
+        self.perc_usage = defaultdict(bool)
+        self.usage = defaultdict(int)
 
     def analyze_dro(self, dro_song):
-        """Returns a dict.
+        """Returns two dicts. First dict is register usage, second dictt is perc inst usage.
         Keys are registers, with the bank set in bit 0x100. e.g.
          register 0xDB on the high bank will return a key of 0x1DB.
-        Values are the number of times that register is used in the DRO file."""
-        usage = defaultdict(int)
+        Values are the number of times that register is used in the DRO file.
+
+        Perc usage dict:
+        Keys are bitmasks (powers of 2), values are "True" if that bit was set during
+        the analysis."""
+        self.usage = defaultdict(int)
+        self.perc_usage = defaultdict(bool)
+        perc_bitmasks = regdata.register_bitmask_lookup[regdata.registers[self.PERC_CHANNEL]]
         with dro_song.data_lock:
             bank = 0
             for inst in dro_song.data:
@@ -504,8 +514,14 @@ class DRORegisterUsageAnalyzer(object):
                 if inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
                     bank = inst.value
                 if inst.inst_type == dro_data.DROInstruction.T_REGISTER:
-                    usage[(bank << 8) | inst.command] += 1
-        return usage
+                    self.usage[(bank << 8) | inst.command] += 1
+                    if inst.command == self.PERC_CHANNEL and self.detailed_percussion_analysis:
+                        # Go through all bitmasks, mark any usages.
+                        for i, pb in enumerate(perc_bitmasks):
+                            if inst.value ^ pb.mask:
+                                self.perc_usage[(bank << 8) | pb.mask] = True
+        return self.usage, self.perc_usage
+
 
 class DRODebugAnalyzer(object):
     def __init__(self):

@@ -62,6 +62,9 @@ setup(version = convert_version(dro_globals.g_app_version),
         {
             "script": "dro2to1.py"
         },
+        {
+            "script": "dro_split.py"
+        },
       ],
       options=opts
 )

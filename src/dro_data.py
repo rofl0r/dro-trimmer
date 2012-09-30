@@ -520,6 +520,20 @@ class DROSong(object):
             self.name, self.file_version, self.opl_type, self.OPL_TYPE_MAP[self.opl_type], self.ms_length
         )
 
+    def pretty_string(self):
+        pstr = (
+            "DRO Song: %(name)s\n"
+            "Format: v%(file_version)s\n"
+            "OPL Type: %(opl_type)s\n"
+            "Length (ms): %(ms_length)s"
+        ) % {
+            "name" : self.name,
+            "file_version" : self.file_version,
+            "opl_type" : self.OPL_TYPE_MAP[self.opl_type],
+            "ms_length" : self.ms_length
+        }
+        return pstr
+
 
 class DROSongV2(DROSong):
     OPL_TYPE_MAP = [

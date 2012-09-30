@@ -139,9 +139,12 @@ class OPLStream(object):
 
 
 class DROPlayer(object):
-    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1) + [0xBD,] +
-                                  range(0x1B0, 0x1B8 + 1) + [0x1BD,])
-    def __init__(self):
+    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1)  +
+                                  range(0x1B0, 0x1B8 + 1))
+    PERCUSSION_REGISTER = 0xBD
+    #PERCUSSION_VALUES = frozenset(map(lambda i: 2 ** i, range(5)))
+
+    def __init__(self, channels=2):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
@@ -155,7 +158,7 @@ class DROPlayer(object):
             self.frequency = 48000
             self.buffer_size = 512
             self.bit_depth = 16
-        self.channels = 2
+        self.channels = channels # crap
         audio = pyaudio.PyAudio()
         self.audio_stream = audio.open(
             format = audio.get_format_from_width(self.bit_depth / 8),
@@ -178,6 +181,7 @@ class DROPlayer(object):
         self.sound_on = True
         self.recording_on = False
         self.active_channels = set(self.CHANNEL_REGISTERS)
+        self.active_percussion = [0xFF, 0xFF]
 
     def load_song(self, new_song):
         """
@@ -206,6 +210,8 @@ class DROPlayer(object):
                 # Hack. DRO V1 files don't seem to set the "Waveform select" register
                 # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
                 self.opl_stream.write(1, 32)
+        self.active_percussion = set(self.CHANNEL_REGISTERS)
+        self.active_percussion = [0xFF, 0xFF]
 
     def close_output_streams(self):
         self.wav_renderer.close()
@@ -302,12 +308,15 @@ class DROSeeker(object):
 
 
 class DROPlayerUpdateThread(threading.Thread):
+    PERCUSSION_REGISTER = 0xBD
+
     def __init__(self, dro_player, current_song):
         super(DROPlayerUpdateThread, self).__init__()
         self.dro_player = dro_player # circular reference, yuck
         self.current_song = current_song
         self.stop_request = threading.Event()
         self.active_channels = set(self.dro_player.active_channels)
+        self.active_percussion = set(self.dro_player.active_percussion)
 
     @stopPlayerOnException
     def run(self):
@@ -337,10 +346,19 @@ class DROPlayerUpdateThread(threading.Thread):
                 if inst.bank is not None: # DRO v2
                     self.dro_player.opl_stream.set_bank(inst.bank)
                 # Check if this is a channel register, and if so, if it should be muted.
-                if ((not inst.command in self.dro_player.CHANNEL_REGISTERS) or
-                    ((self.dro_player.opl_stream.bank << 8) | inst.command in self.active_channels)):
+                # Percussion channel is handled separately
+                if inst.command == self.PERCUSSION_REGISTER:
+                    # Need to pass through the 3 high bits of the percussion channel.
+                    # We rely on the bitmask to handle this.
+                    mask = self.dro_player.active_percussion[self.dro_player.opl_stream.bank]
+                    val = inst.value & mask
+                    self.dro_player.opl_stream.write(inst.command, val)
+                # Non-channel registers get a pass.
+                elif not inst.command in self.dro_player.CHANNEL_REGISTERS:
                     self.dro_player.opl_stream.write(inst.command, inst.value)
-
+                # Only write to channel registers if they are active.
+                elif (self.dro_player.opl_stream.bank << 8) | inst.command in self.active_channels:
+                    self.dro_player.opl_stream.write(inst.command, inst.value)
             # Update position and stop if no more instructions.
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
@@ -366,38 +384,10 @@ class _TimerUpdateThread(threading.Thread):
             time.sleep(0.01)
             self.time_elapsed += 10
 
-
-def split_tracks(dro_player, dro_song):
-    # First, analyse
-    usage_analyzer = dro_analysis.DRORegisterUsageAnalyzer()
-    usage = usage_analyzer.analyze_dro(dro_song)
-    channels_to_render = sorted(list(dro_player.CHANNEL_REGISTERS))
-    if dro_song.OPL_TYPE_MAP[dro_song.opl_type] == "OPL-2":
-        channels_to_render = [ctr for ctr in channels_to_render if ctr < 0x100]
-    for channel in channels_to_render:
-        channel_num = (channel & 0xFF) - 0xAF
-        bank_num = (channel & 0x100) >> 8
-        if usage[channel] == 0:
-            print "Skipping bank %01i, channel %02i" % (bank_num, channel_num,)
-            continue
-        dro_player.reset()
-        dro_player.active_channels = set([channel])
-        dro_player.set_wav_fname("%s.%01i.%02i.wav" % (dro_song.name, bank_num, channel_num))
-        dro_player.play()
-        while dro_player.is_playing:
-            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
-            sys.stdout.flush()
-            time.sleep(0.05)
-        sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
-        print " - Finished rendering bank %01i, channel %02i" % (bank_num, channel_num,)
-    print "Done!"
-
 def __parse_arguments():
     parser = optparse.OptionParser()
     parser.add_option("-r", "--render", action="store_true", dest="render", default=False,
                       help="Render the song to a WAV file. Sound output is disabled.")
-    parser.add_option("-s", "--split-tracks", action="store_true", dest="split_tracks", default=False,
-                      help="Renders each channel to a separate WAV file. Sound output is disabled.")
     return parser.parse_args()
 
 def main():
@@ -415,17 +405,14 @@ def main():
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)
     dro_player = DROPlayer()
-    dro_player.sound_on = not (options.render or options.split_tracks)
-    dro_player.recording_on = options.render or options.split_tracks
-    #dro_player.active_channels.intersection_update(set([0xB0]))
+    dro_player.sound_on = not options.render
+    dro_player.recording_on = options.render
     dro_player.load_song(dro_song)
-    print str(dro_song)
+    print dro_song.pretty_string()
 
     timer_thread = None
     try:
-        if options.split_tracks:
-            split_tracks(dro_player, dro_song)
-        elif options.render:
+        if options.render:
             dro_player.play()
             while dro_player.is_playing:
                 sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
