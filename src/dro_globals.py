@@ -3,7 +3,7 @@
 #    Use, distribution, and modification of the DRO Trimmer binaries, source code,
 #    or documentation, is subject to the terms of the MIT license, as below.
 #
-#    Copyright (c) 2008 - 2012 Laurence Dougal Myers
+#    Copyright (c) 2008 - 2013 Laurence Dougal Myers
 #
 #    Permission is hereby granted, free of charge, to any person obtaining a copy
 #    of this software and associated documentation files (the "Software"), to deal
@@ -39,4 +39,4 @@ def task_master():
     return g_task_master
 
 g_app_name = "DRO Trimmer"
-g_app_version = "v4 r2 beta"
+g_app_version = "v4 r2"
