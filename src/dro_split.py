@@ -28,6 +28,7 @@ import os
 import sys
 import time
 import dro_analysis
+import dro_globals
 import dro_io
 import dro_player
 import dro_util
@@ -97,24 +98,28 @@ def split_tracks(player, dro_song, isolate_percussion=False):
     print "Done!"
 
 def __parse_arguments():
-    parser = optparse.OptionParser()
-    parser.add_option("-p", "--preserve-panning", action="store_true", dest="preserve_panning", default=False,
+    usage = ("Usage: %prog [options] dro_file\n\n" +
+             "Renders a DRO song into multiple WAV files, one file per channel used.")
+    version = dro_globals.g_app_version
+    oparser = optparse.OptionParser(usage, version=version)
+    oparser.add_option("-p", "--preserve-panning", action="store_true", dest="preserve_panning", default=False,
                       help="Keeps any panning settings on each channel, producing a stereo output file. "
                            "(This requires double the hard drive space!)")
-    parser.add_option("-i", "--isolate-percussion", action="store_true", dest="isolate_percussion", default=False,
+    oparser.add_option("-i", "--isolate-percussion", action="store_true", dest="isolate_percussion", default=False,
                       help="Renders each drum on the percussion channel to its own output file.")
-    return parser.parse_args()
+    options, args = oparser.parse_args()
+    return oparser, options, args
 
 def main():
-    """ As a bonus, this module can be used as a standalone program to play a DRO song!
-    """
-    options, args = __parse_arguments()
+    oparser, options, args = __parse_arguments()
     if len(args) < 1:
-        print "Pass the name of the song to play as the first argument. e.g. 'player cdshock_000.dro'"
+        print "Please pass the name of the song to split as the first argument."
+        oparser.print_help()
         return 1
     song_to_play = args[0]
     if not os.path.isfile(song_to_play):
         print "Song does not appear to exist, or is not a file: %s" % song_to_play
+        oparser.print_help()
         return 3
 
     file_reader = dro_io.DroFileIO()

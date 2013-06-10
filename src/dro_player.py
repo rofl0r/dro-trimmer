@@ -31,8 +31,8 @@ import time
 import wave
 import pyaudio
 import pyopl
-import dro_analysis
 import dro_data
+import dro_globals
 import dro_util
 import dro_io
 
@@ -399,17 +399,29 @@ class _TimerUpdateThread(threading.Thread):
             self.time_elapsed += 10
 
 def __parse_arguments():
-    parser = optparse.OptionParser()
-    parser.add_option("-r", "--render", action="store_true", dest="render", default=False,
+    usage = ("Usage: %prog [options] dro_file\n\n" +
+             "Plays a DRO song. Can also be used to render a song to a single WAV file.\n\n" +
+             "Keyboard shorcuts:\n" +
+             " 0-9: solo channel\n" +
+             " ~: unmute all channels\n" +
+             " -: switch to the low bank\n" +
+             " +: switch to the high bank (OPL-3)"
+             " CTRL-C: cancel playback"
+        )
+    version = dro_globals.g_app_version
+    oparser = optparse.OptionParser(usage, version=version)
+    oparser.add_option("-r", "--render", action="store_true", dest="render", default=False,
                       help="Render the song to a WAV file. Sound output is disabled.")
-    return parser.parse_args()
+    options, args = oparser.parse_args()
+    return oparser, options, args
 
 def main():
     """ As a bonus, this module can be used as a standalone program to play a DRO song!
     """
-    options, args = __parse_arguments()
+    oparser, options, args = __parse_arguments()
     if len(args) < 1:
-        print "Pass the name of the song to play as the first argument. e.g. 'dro_player cdshock_000.dro'"
+        print "Please pass the name of the song to play as the first argument."
+        oparser.print_help()
         return 1
     song_to_play = args[0]
     if not os.path.isfile(song_to_play):
@@ -443,18 +455,18 @@ def main():
                 # Check for user input.
                 chin = dro_util.getch()
                 if chin:
-                    if 48 <= ord(chin) <= 57:
+                    if 48 <= ord(chin) <= 57: # solo channels
                         if int(chin) == 0:
                             channel = 0xBD
                         else:
                             channel = 0xB0 + int(chin) - 1
                         channel |= (bank << 8)
                         dro_player.active_channels = set([channel])
-                    elif chin == "`" or chin == "~":
+                    elif chin == "`" or chin == "~": # reset
                         dro_player.active_channels = set(dro_player.CHANNEL_REGISTERS)
-                    elif chin == "-" or chin == "_":
+                    elif chin == "-" or chin == "_": # switch to bank 0
                         bank = 0
-                    elif chin == "=" or chin == "+":
+                    elif chin == "=" or chin == "+": # switch to bank 1
                         bank = 1
                 time.sleep(0.01)
             # Print the end time too (but cheat)
