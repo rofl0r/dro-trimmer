@@ -115,9 +115,11 @@ class DTApp(wx.App):
             "Open DRO",
             wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
             style=wx.OPEN|wx.FILE_MUST_EXIST|wx.CHANGE_DIR)
-        if od.ShowModal() == wx.ID_OK:
-            filename = od.GetPath()
-
+        result = od.ShowModal()
+        filename = od.GetPath()
+        od.Destroy()
+        del od
+        if result == wx.ID_OK:
             importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
 
@@ -151,21 +153,25 @@ class DTApp(wx.App):
             if auto_trimmed:
                 dats = "Despite auto-trimming, t"
                 md = wx.MessageDialog(self.mainframe,
-                    'The DRO was found to contain a bogus delay as\n' +\
-                    'its first instruction. It has been automatically\n' +\
+                    'The DRO was found to contain a bogus delay as\n' +
+                    'its first instruction. It has been automatically\n' +
                     'removed. (Don\'t forget to save!)',
                     'DRO auto-trimmed',
                     style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()
                 # File has mismatch between measured and reported
             if delay_mismatch:
+                msg = (dats + 'here was a mismatch between\n' +
+                'the measured length of the song in milliseconds,\n' +
+                'and the length stored in the DRO file.\n')
+                if self.drosong.file_version == dro_data.DRO_FILE_V1:
+                    msg += 'Please re-save the file to use the calculated value.'
+                else:
+                    msg += ('Please set "dro_info_edit_enabled" to "true"\n' +
+                        'in drotrim.ini, then edit the song length on\n' +
+                        'the DRO Info screen.')
                 md = wx.MessageDialog(self.mainframe,
-                    dats + 'here was a mismatch between\n' +\
-                    'the measured length of the song in milliseconds,\n' +\
-                    'and the length stored in the DRO file.\n' +\
-                    'You can fix this in the DRO Info page, \n' +\
-                    'as long as "dro_info_edit_enabled" is enabled\n' +\
-                    'in the drotrim.ini configuration file.',
+                    msg,
                     'DRO timing mismatch',
                     style=wx.OK|wx.ICON_INFORMATION)
                 md.ShowModal()

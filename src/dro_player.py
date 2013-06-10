@@ -23,11 +23,18 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import optparse
+import os
+import sys
 import threading
+import time
+import wave
 import pyaudio
 import pyopl
 import dro_data
+import dro_globals
 import dro_util
+import dro_io
 
 def stopPlayerOnException(func):
     def inner_func(self, *args, **kwds):
@@ -39,26 +46,70 @@ def stopPlayerOnException(func):
     return inner_func
 
 
+class WavRenderer(object):
+    def __init__(self, frequency, bit_depth, channels):
+        self.frequency = frequency
+        self.bit_depth = bit_depth
+        self.channels = channels
+        self.wav = None
+        self.wav_fname = None
+        self.wav_lock = threading.RLock()
+
+    def open(self, wav_fname=None):
+        if wav_fname is None:
+            wav_fname = self.wav_fname
+        self.wav = wave.open(wav_fname, 'wb')
+        self.wav_fname = wav_fname
+        self.wav.setnchannels(self.channels)
+        self.wav.setsampwidth(self.bit_depth / 8)
+        self.wav.setframerate(self.frequency)
+
+    def close(self):
+        with self.wav_lock:
+            if self.wav is not None:
+                self.wav.close()
+                self.wav = None # Hm, maybe should leave it hanging around?
+                self.wav_fname = None
+
+    def write(self, data):
+        with self.wav_lock:
+            if self.wav is not None:
+                self.wav.writeframes(data)
+
+
 class OPLStream(object):
     """ Based on demo.py that comes with the PyOPL library.
     """
-    def __init__(self, frequency, buffer_size, bit_depth, channels, audio_stream):
+    def __init__(self, frequency, buffer_size, bit_depth, channels, output_streams):
         """
         @type frequency: int
         @type buffer_size: int
         @type bit_depth: int
-        @type audio_stream: PyAudio
+        @type output_streams: list, containing PyAudio or WavRenderer objects.
         """
         self.frequency = frequency # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
         self.bit_depth = bit_depth
         self.channels = channels
-        self.audio_stream = audio_stream # probably shouldn't be a local property...
+        self.output_streams = output_streams
         self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
         self.buffer = self.__create_bytearray(buffer_size)
         self.pyaudio_buffer = buffer(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
         self.bank = 0
+        self.reset_opl()
+
+    def reset_opl(self):
+        """
+        The OPL emulator will retain it state, we need to make sure that we can clear its state
+        (e.g. when creating a new OPL stream).
+        """
+        orig_bank = self.bank
+        for bank in xrange(2):
+            self.bank = bank
+            for reg in xrange(0x100):
+                self.write(reg, 0x00)
+        self.bank = orig_bank
 
     def __create_bytearray(self, size):
         return bytearray(size * (self.bit_depth / 8) * self.channels)
@@ -82,11 +133,13 @@ class OPLStream(object):
                 tmp_audio_buffer = self.pyaudio_buffer
                 samples_to_render -= self.buffer_size
             self.opl.getSamples(tmp_buffer)
-            self.audio_stream.write(buffer(tmp_audio_buffer))
+            for ostream in self.output_streams:
+                ostream.write(buffer(tmp_audio_buffer))
 
     def flush(self):
         dummy_data = self.__create_bytearray(self.buffer_size)
-        self.audio_stream.write(buffer(dummy_data))
+        for ostream in self.output_streams:
+            ostream.write(buffer(dummy_data))
 
     def set_high_bank(self):
         self.bank = 1
@@ -97,8 +150,14 @@ class OPLStream(object):
     def set_bank(self, bank):
         self.bank = bank
 
+
 class DROPlayer(object):
-    def __init__(self):
+    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1)  +
+                                  range(0x1B0, 0x1B8 + 1))
+    PERCUSSION_REGISTER = 0xBD
+    #PERCUSSION_VALUES = frozenset(map(lambda i: 2 ** i, range(5)))
+
+    def __init__(self, channels=2):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
@@ -112,19 +171,30 @@ class DROPlayer(object):
             self.frequency = 48000
             self.buffer_size = 512
             self.bit_depth = 16
-        self.channels = 2
+        self.channels = channels # crap
         audio = pyaudio.PyAudio()
         self.audio_stream = audio.open(
             format = audio.get_format_from_width(self.bit_depth / 8),
             channels = self.channels,
             rate = self.frequency,
             output = True)
+        # Set up the WAV Renderer
+        self.wav_renderer = WavRenderer(
+            self.frequency,
+            self.bit_depth,
+            self.channels
+        )
+        # Set up other stuff
         self.opl_stream = None
         self.current_song = None
         self.is_playing = False
         self.pos = 0
         self.time_elapsed = 0
         self.update_thread = None
+        self.sound_on = True
+        self.recording_on = False
+        self.active_channels = set(self.CHANNEL_REGISTERS)
+        self.active_percussion = [0xFF, 0xFF]
 
     def load_song(self, new_song):
         """
@@ -141,15 +211,34 @@ class DROPlayer(object):
         if self.update_thread is not None:
             self.update_thread.stop_request.set()
         self.update_thread = None # This thread gets created only when playing actually begins.
-        self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels, self.audio_stream)
-        if (self.current_song is not None
-            and self.current_song.file_version == dro_data.DRO_FILE_V1):
-            # Hack. DRO V1 files don't seem to set the "Waveform select" register
-            # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
-            self.opl_stream.write(1, 32)
+        output_streams = []
+        if self.sound_on:
+            output_streams.append(self.audio_stream)
+        if self.recording_on:
+            output_streams.append(self.wav_renderer)
+        self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels,
+                                    output_streams)
+        if self.current_song is not None:
+            if self.current_song.file_version == dro_data.DRO_FILE_V1:
+                # Hack. DRO V1 files don't seem to set the "Waveform select" register
+                # correctly, so OPL-2 songs sound very wrong. Doesn't affect V2 files.
+                self.opl_stream.write(1, 32)
+        self.active_percussion = set(self.CHANNEL_REGISTERS)
+        self.active_percussion = [0xFF, 0xFF]
+
+    def close_output_streams(self):
+        self.wav_renderer.close()
+
+    def set_wav_fname(self, wav_fname):
+        self.wav_renderer.wav_fname = wav_fname
 
     def play(self):
         self.is_playing = True
+        if self.recording_on:
+            if self.wav_renderer.wav_fname is None:
+                self.wav_renderer.open("%s.wav" % (self.current_song.name,))
+            else:
+                self.wav_renderer.open()
         self.update_thread = DROPlayerUpdateThread(self, self.current_song)
         self.update_thread.start()
 
@@ -164,6 +253,7 @@ class DROPlayer(object):
         if self.opl_stream is not None:
             self.opl_stream.stop_requested = True
             #self.opl_stream.flush()
+        self.wav_renderer.close()
 
     def seek_to_time(self, seek_time):
         seeker = DROSeeker(self)
@@ -232,79 +322,168 @@ class DROSeeker(object):
 
 
 class DROPlayerUpdateThread(threading.Thread):
+    PERCUSSION_REGISTER = 0xBD
+
     def __init__(self, dro_player, current_song):
         super(DROPlayerUpdateThread, self).__init__()
         self.dro_player = dro_player # circular reference, yuck
         self.current_song = current_song
         self.stop_request = threading.Event()
+        self.active_channels = set(self.dro_player.active_channels)
+        self.active_percussion = set(self.dro_player.active_percussion)
 
     @stopPlayerOnException
     def run(self):
         while (self.dro_player.pos < len(self.current_song.data)
                and self.dro_player.is_playing
                and not self.stop_request.isSet()):
+            # First, check if we need to mute a channel register.
+            new_muted_channels = self.active_channels - self.dro_player.active_channels
+            orig_bank = self.dro_player.opl_stream.bank
+            for channel in new_muted_channels:
+                self.dro_player.opl_stream.set_bank((channel & 0x100) >> 8)
+                self.dro_player.opl_stream.write(channel & 0xFF, 0x00)
+            del orig_bank
+            # Check if we need to unmute a channel register (also remove muted channels).
+            if self.dro_player.active_channels ^ self.active_channels:
+                self.active_channels = set(self.dro_player.active_channels)
+
+            # Process the instruction.
             inst = self.dro_player.current_song.data[self.dro_player.pos]
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 self.dro_player.opl_stream.render(inst.value)
+                self.dro_player.time_elapsed += inst.value
             elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
                 self.dro_player.opl_stream.set_bank(inst.value) # DRO v1
             #elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
             else:
                 if inst.bank is not None: # DRO v2
                     self.dro_player.opl_stream.set_bank(inst.bank)
-                self.dro_player.opl_stream.write(inst.command, inst.value)
+                # Check if this is a channel register, and if so, if it should be muted.
+                # Percussion channel is handled separately
+                if inst.command == self.PERCUSSION_REGISTER:
+                    # Need to pass through the 3 high bits of the percussion channel.
+                    # We rely on the bitmask to handle this.
+                    mask = self.dro_player.active_percussion[self.dro_player.opl_stream.bank]
+                    val = inst.value & mask
+                    self.dro_player.opl_stream.write(inst.command, val)
+                # Non-channel registers get a pass.
+                elif not inst.command in self.dro_player.CHANNEL_REGISTERS:
+                    self.dro_player.opl_stream.write(inst.command, inst.value)
+                # Only write to channel registers if they are active.
+                elif (self.dro_player.opl_stream.bank << 8) | inst.command in self.active_channels:
+                    self.dro_player.opl_stream.write(inst.command, inst.value)
+            # Update position and stop if no more instructions.
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
                 self.dro_player.is_playing = False
+        self.dro_player.close_output_streams() # TODO: move this somewhere else. Maybe trigger an event?
 
+
+class _TimerUpdateThread(threading.Thread):
+    def __init__(self, dro_song):
+        super(_TimerUpdateThread, self).__init__()
+        self.time_elapsed = 0
+        self.dro_song = dro_song
+        self.stop_request = threading.Event()
+
+    def run(self):
+        while not self.stop_request.isSet():
+            # Pretty rough way of keeping time.
+            sys.stdout.write("\r" +
+                             dro_util.ms_to_timestr(self.time_elapsed) +
+                             " / " +
+                             dro_util.ms_to_timestr(self.dro_song.ms_length))
+            sys.stdout.flush()
+            time.sleep(0.01)
+            self.time_elapsed += 10
+
+def __parse_arguments():
+    usage = ("Usage: %prog [options] dro_file\n\n" +
+             "Plays a DRO song. Can also be used to render a song to a single WAV file.\n\n" +
+             "Keyboard shorcuts:\n" +
+             " 0-9: solo channel\n" +
+             " ~: unmute all channels\n" +
+             " -: switch to the low bank\n" +
+             " +: switch to the high bank (OPL-3)"
+             " CTRL-C: cancel playback"
+        )
+    version = dro_globals.g_app_version
+    oparser = optparse.OptionParser(usage, version=version)
+    oparser.add_option("-r", "--render", action="store_true", dest="render", default=False,
+                      help="Render the song to a WAV file. Sound output is disabled.")
+    options, args = oparser.parse_args()
+    return oparser, options, args
 
 def main():
     """ As a bonus, this module can be used as a standalone program to play a DRO song!
     """
-    import dro_io
-    import os
-    import sys
-    import time
-
-    if len(sys.argv) < 2:
-        print "Pass the name of the song to play as the first argument. e.g. 'dro_player cdshock_000.dro'"
+    oparser, options, args = __parse_arguments()
+    if len(args) < 1:
+        print "Please pass the name of the song to play as the first argument."
+        oparser.print_help()
         return 1
-
-    song_to_play = sys.argv[1]
+    song_to_play = args[0]
     if not os.path.isfile(song_to_play):
         print "Song does not appear to exist, or is not a file: %s" % song_to_play
         return 3
+
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)
     dro_player = DROPlayer()
+    dro_player.sound_on = not options.render
+    dro_player.recording_on = options.render
     dro_player.load_song(dro_song)
-    print str(dro_song)
+    print dro_song.pretty_string()
 
-    def ms_to_timestr(ms_val):
-        # Stolen from StackOverflow, post by Sven Marnach
-        minutes, milliseconds = divmod(ms_val, 60000)
-        seconds = float(milliseconds) / 1000
-        return "%02i:%02i" % (minutes, seconds)
-
-    time_elapsed = 0
-    dro_player.play()
+    timer_thread = None
     try:
-        while dro_player.is_playing:
-            # Pretty rough way of keeping time.
-            sys.stdout.write("\r" + ms_to_timestr(time_elapsed) + " / " + ms_to_timestr(dro_song.ms_length))
-            sys.stdout.flush()
-            time.sleep(1)
-            time_elapsed += 1000
-        # Print the end time too (but cheat)
-        sys.stdout.write("\r" + ms_to_timestr(dro_song.ms_length) + " / " + ms_to_timestr(dro_song.ms_length))
+        if options.render:
+            dro_player.play()
+            while dro_player.is_playing:
+                sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+                sys.stdout.flush()
+                time.sleep(0.05)
+            # Print the end time too (but cheat)
+            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+        else:
+            dro_player.play()
+            timer_thread = _TimerUpdateThread(dro_song)
+            timer_thread.start()
+            bank = 0
+            while dro_player.is_playing:
+                # Check for user input.
+                chin = dro_util.getch()
+                if chin:
+                    if 48 <= ord(chin) <= 57: # solo channels
+                        if int(chin) == 0:
+                            channel = 0xBD
+                        else:
+                            channel = 0xB0 + int(chin) - 1
+                        channel |= (bank << 8)
+                        dro_player.active_channels = set([channel])
+                    elif chin == "`" or chin == "~": # reset
+                        dro_player.active_channels = set(dro_player.CHANNEL_REGISTERS)
+                    elif chin == "-" or chin == "_": # switch to bank 0
+                        bank = 0
+                    elif chin == "=" or chin == "+": # switch to bank 1
+                        bank = 1
+                time.sleep(0.01)
+            # Print the end time too (but cheat)
+            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
     except KeyboardInterrupt, ke:
-        if dro_player.is_playing:
-            dro_player.stop()
+        pass
     except Exception, e:
         print e
         return 2
+    finally:
+        if dro_player.is_playing:
+            dro_player.stop()
+        if timer_thread is not None:
+            timer_thread.stop_request.set()
+            if timer_thread.isAlive(): # not quite right, but meh.
+                timer_thread.join()
     return 0
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main())

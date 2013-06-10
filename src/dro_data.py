@@ -38,6 +38,7 @@ DRO_FILE_V2 = 2
 class DROInstruction(object):
     __slots__ = ["inst_type", "command", "value", "bank"]
     T_REGISTER, T_DELAY, T_BANK_SWITCH = range(3)
+    TYPE_MAP = ["T_REGISTER", "T_DELAY", "T_BANK_SWITCH"]
 
     def __init__(self, inst_type, command, value, bank=None):
         self.inst_type = inst_type
@@ -46,8 +47,8 @@ class DROInstruction(object):
         self.bank = bank
 
     def __repr__(self):
-        return ("DROInstruction(%s, %s, %s, %s)" %
-            (self.inst_type,
+        return ("DROInstruction(DROInstruction.%s, %s, %s, bank=%s)" %
+            (self.TYPE_MAP[self.inst_type],
                 self.command,
                 self.value,
                 self.bank))
@@ -518,6 +519,20 @@ class DROSong(object):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
             self.name, self.file_version, self.opl_type, self.OPL_TYPE_MAP[self.opl_type], self.ms_length
         )
+
+    def pretty_string(self):
+        pstr = (
+            "DRO Song: %(name)s\n"
+            "Format: v%(file_version)s\n"
+            "OPL Type: %(opl_type)s\n"
+            "Length (ms): %(ms_length)s"
+        ) % {
+            "name" : self.name,
+            "file_version" : self.file_version,
+            "opl_type" : self.OPL_TYPE_MAP[self.opl_type],
+            "ms_length" : self.ms_length
+        }
+        return pstr
 
 
 class DROSongV2(DROSong):
