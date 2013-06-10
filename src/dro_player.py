@@ -97,6 +97,19 @@ class OPLStream(object):
         self.pyaudio_buffer = buffer(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
         self.bank = 0
+        self.reset_opl()
+
+    def reset_opl(self):
+        """
+        The OPL emulator will retain it state, we need to make sure that we can clear its state
+        (e.g. when creating a new OPL stream).
+        """
+        orig_bank = self.bank
+        for bank in xrange(2):
+            self.bank = bank
+            for reg in xrange(0x100):
+                self.write(reg, 0x00)
+        self.bank = orig_bank
 
     def __create_bytearray(self, size):
         return bytearray(size * (self.bit_depth / 8) * self.channels)
@@ -221,10 +234,11 @@ class DROPlayer(object):
 
     def play(self):
         self.is_playing = True
-        if self.wav_renderer.wav_fname is None:
-            self.wav_renderer.open("%s.wav" % (self.current_song.name,))
-        else:
-            self.wav_renderer.open()
+        if self.recording_on:
+            if self.wav_renderer.wav_fname is None:
+                self.wav_renderer.open("%s.wav" % (self.current_song.name,))
+            else:
+                self.wav_renderer.open()
         self.update_thread = DROPlayerUpdateThread(self, self.current_song)
         self.update_thread.start()
 
