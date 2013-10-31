@@ -29,20 +29,48 @@ import itertools
 import threading
 
 import dro_data
-from dro_util import DROTrimmerException
+from dro_util import DROTrimmerException, read_config
 import regdata
 
 # Duplicated from dro_data to avoid circular import. TODO: move to common location.
 DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
 
+
 class DROTotalDelayCalculator(object):
     def sum_delay(self, dro_song):
+        """
+        @type dro_song: DROSong
+        """
         # Bleh
         calc_delay = 0
         for inst in dro_song.data:
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 calc_delay += inst.value
+        return calc_delay
+
+
+class DROTotalDelayWithWriteDelayCalculator(object):
+    def __init__(self):
+        try:
+            config = read_config()
+            self.chip_write_delay = config.getfloat("audio", "chip_write_delay")
+        except Exception, e:
+            print "Could not read audio settings from drotrim.ini, using default value for chip write delay. (Error: %s)" % e
+            self.chip_write_delay = 0
+
+    def sum_delay(self, dro_song):
+        """
+        @type dro_song: DROSong
+        """
+        calc_delay = 0 # milliseconds
+        total_write_delay = 0 # microseconds
+        for inst in dro_song.data:
+            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+                calc_delay += inst.value
+            elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
+                total_write_delay += self.chip_write_delay
+        calc_delay += total_write_delay // 1000
         return calc_delay
 
 
@@ -66,6 +94,9 @@ class DROTotalDelayMismatchAnalyzer(object):
         self.result = False
 
     def analyze_dro(self, dro_song):
+        """
+        @type dro_song: DROSong
+        """
         calc_delay = DROTotalDelayCalculator().sum_delay(dro_song)
         self.result = calc_delay != dro_song.ms_length
 
@@ -101,6 +132,9 @@ class DROLoopAnalyzer(object):
         return len(self.analysis_methods)
 
     def analyze_dro(self, dro_song):
+        """
+        @type dro_song: DROSong
+        """
         results = []
         for analysis_method in self.analysis_methods:
             results.append(analysis_method(dro_song))

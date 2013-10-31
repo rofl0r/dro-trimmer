@@ -31,6 +31,7 @@ import time
 import wave
 import pyaudio
 import pyopl
+import dro_analysis
 import dro_data
 import dro_globals
 import dro_util
@@ -79,24 +80,56 @@ class WavRenderer(object):
 
 class OPLStream(object):
     """ Based on demo.py that comes with the PyOPL library.
+
+    Also accounts for chip-write delays:
+     "The AdLib manual gives the wait times in microseconds: three point three
+     (3.3) microseconds for the address, and twenty-three (23) microseconds
+     for the data."
+
+    The OPL3 (YMF262) spec suggests that an address write and data write both need a wait of 32 master clock cycles.
+    The master clock runs at 14.32 MHz. 64 cycles is 4.469273743016759776536312849162 microseconds... approximately ;)
+
+    This page:
+    http://www.ugcs.caltech.edu/~john/computer/opledit/tech/opl3.txt
+    Says:
+     "Unlike Adlib (OPL2), OPL3 doesn't need delay between register writes.
+     With OPL2 you had to wait 3.3 [microseconds] after index register write and another
+     23 [microseconds] after data register write. On the contrary OPL3 doesn't need
+     (almost) any delay after index register write and only 0.28 [microseconds] after data
+     register write. This means you can neglect the delays and slightly speed up
+     your music driver. But using reasonable delays will certainly do no harm."
+
+    A post on VOGONS mentions it could be 3.3us... sigh.
+
+    Anyway, basically we need to make it configurable.
+
     """
-    def __init__(self, frequency, buffer_size, bit_depth, channels, output_streams):
+    #CHIP_WRITE_DELAY = 3.3 + 23 # microseconds
+    #CHIP_WRITE_DELAY_OPL3 = 0.28 # microseconds
+    #CHIP_WRITE_DELAY_OPL3 = 4.5 # microseconds
+
+    def __init__(self, frequency, buffer_size, bit_depth, channels, chip_write_delay, output_streams):
         """
         @type frequency: int
         @type buffer_size: int
         @type bit_depth: int
+        @type channels: int
+        @type chip_write_delay: float
         @type output_streams: list, containing PyAudio or WavRenderer objects.
         """
         self.frequency = frequency # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
         self.bit_depth = bit_depth
         self.channels = channels
+        self.chip_write_delay = chip_write_delay
         self.output_streams = output_streams
         self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
         self.buffer = self.__create_bytearray(buffer_size)
         self.pyaudio_buffer = buffer(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
         self.bank = 0
+        self.chip_delay_drift = 0 # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
+        self.sample_overflow = 0 # float, fraction of samples that still need to be rendered.
         self.reset_opl()
 
     def reset_opl(self):
@@ -119,10 +152,17 @@ class OPLStream(object):
             register |= 0x100
             # Could be re-written as "register |= self.bank << 2"
         self.opl.writeReg(register, value)
+        self.chip_delay_drift += self.chip_write_delay
 
     def render(self, length_ms):
         # Taken from PyOPL 1.0 and 1.2. Accurate rendering, though a bit inefficient.
-        samples_to_render = length_ms * self.frequency / 1000
+        samples_to_render = length_ms * self.frequency / 1000.0
+        samples_to_render += self.sample_overflow
+        self.sample_overflow = samples_to_render % 1
+        if samples_to_render < 2:
+            # Limitation of PyOPL: needs a minimum of two samples.
+            return
+        samples_to_render = int(samples_to_render // 1)
         while samples_to_render > 0 and not self.stop_requested:
             if samples_to_render < self.buffer_size:
                 tmp_buffer = self.__create_bytearray((samples_to_render % self.buffer_size))
@@ -135,6 +175,14 @@ class OPLStream(object):
             self.opl.getSamples(tmp_buffer)
             for ostream in self.output_streams:
                 ostream.write(buffer(tmp_audio_buffer))
+
+    def render_chip_delay(self):
+        if self.chip_delay_drift > 0:
+            self.render(self.chip_delay_drift / 1000.0)
+            self.chip_delay_drift = 0
+
+    def clear_chip_delay_drift(self):
+        self.chip_delay_drift = 0
 
     def flush(self):
         dummy_data = self.__create_bytearray(self.buffer_size)
@@ -166,11 +214,13 @@ class DROPlayer(object):
             self.frequency = config.getint("audio", "frequency")
             self.buffer_size = config.getint("audio", "buffer_size")
             self.bit_depth = config.getint("audio", "bit_depth")
+            self.chip_write_delay = config.getfloat("audio", "chip_write_delay")
         except Exception, e:
             print "Could not read audio settings from drotrim.ini, using default values. (Error: %s)" % e
             self.frequency = 48000
             self.buffer_size = 512
             self.bit_depth = 16
+            self.chip_write_delay = 0
         self.channels = channels # crap
         audio = pyaudio.PyAudio()
         self.audio_stream = audio.open(
@@ -195,6 +245,7 @@ class DROPlayer(object):
         self.recording_on = False
         self.active_channels = set(self.CHANNEL_REGISTERS)
         self.active_percussion = [0xFF, 0xFF]
+        self.writes_elapsed = 0
 
     def load_song(self, new_song):
         """
@@ -208,6 +259,7 @@ class DROPlayer(object):
         self.is_playing = False
         self.pos = 0
         self.time_elapsed = 0
+        self.writes_elapsed = 0
         if self.update_thread is not None:
             self.update_thread.stop_request.set()
         self.update_thread = None # This thread gets created only when playing actually begins.
@@ -217,7 +269,7 @@ class DROPlayer(object):
         if self.recording_on:
             output_streams.append(self.wav_renderer)
         self.opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels,
-                                    output_streams)
+                                    self.chip_write_delay, output_streams)
         if self.current_song is not None:
             if self.current_song.file_version == dro_data.DRO_FILE_V1:
                 # Hack. DRO V1 files don't seem to set the "Waveform select" register
@@ -263,6 +315,14 @@ class DROPlayer(object):
         seeker = DROSeeker(self)
         seeker.seek_to_pos(seek_pos)
 
+    @property
+    def write_delay_elapsed(self):
+        return self.writes_elapsed * self.chip_write_delay // 1000
+
+    @property
+    def time_with_write_delay_elapsed(self):
+        return self.time_elapsed + self.write_delay_elapsed
+
 
 class DROSeeker(object):
     """ Helper class to seek in DRO songs. Externalised from the player so the player class remains DRO-version neutral.
@@ -296,7 +356,9 @@ class DROSeeker(object):
                 if inst.bank is not None: # DRO v2
                     self.dro_player.opl_stream.set_bank(inst.bank)
                 self.dro_player.opl_stream.write(inst.command, inst.value)
+                self.dro_player.writes_elapsed += 1
             self.dro_player.pos += 1
+        self.dro_player.opl_stream.clear_chip_delay_drift()
 
     @stopPlayerOnException
     def seek_to_pos(self, seek_pos):
@@ -318,7 +380,9 @@ class DROSeeker(object):
                 if inst.bank is not None: # DRO v2
                     self.dro_player.opl_stream.set_bank(inst.bank)
                 self.dro_player.opl_stream.write(inst.command, inst.value)
+                self.dro_player.writes_elapsed += 1
             self.dro_player.pos += 1
+        self.dro_player.opl_stream.clear_chip_delay_drift()
 
 
 class DROPlayerUpdateThread(threading.Thread):
@@ -373,6 +437,8 @@ class DROPlayerUpdateThread(threading.Thread):
                 # Only write to channel registers if they are active.
                 elif (self.dro_player.opl_stream.bank << 8) | inst.command in self.active_channels:
                     self.dro_player.opl_stream.write(inst.command, inst.value)
+                self.dro_player.writes_elapsed += 1
+                self.dro_player.opl_stream.render_chip_delay()
             # Update position and stop if no more instructions.
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
@@ -381,22 +447,25 @@ class DROPlayerUpdateThread(threading.Thread):
 
 
 class _TimerUpdateThread(threading.Thread):
-    def __init__(self, dro_song):
+    def __init__(self, calc_ms_length):
         super(_TimerUpdateThread, self).__init__()
         self.time_elapsed = 0
-        self.dro_song = dro_song
+        self.calc_ms_length = calc_ms_length
         self.stop_request = threading.Event()
 
     def run(self):
+        calc_ms_length_string = dro_util.ms_to_timestr(self.calc_ms_length)
         while not self.stop_request.isSet():
             # Pretty rough way of keeping time.
-            sys.stdout.write("\r" +
-                             dro_util.ms_to_timestr(self.time_elapsed) +
-                             " / " +
-                             dro_util.ms_to_timestr(self.dro_song.ms_length))
+            sys.stdout.write("\r{} / {}".format(
+                 dro_util.ms_to_timestr(self.time_elapsed),
+                 calc_ms_length_string
+                )
+            )
             sys.stdout.flush()
             time.sleep(0.01)
             self.time_elapsed += 10
+
 
 def __parse_arguments():
     usage = ("Usage: %prog [options] dro_file\n\n" +
@@ -414,6 +483,7 @@ def __parse_arguments():
                       help="Render the song to a WAV file. Sound output is disabled.")
     options, args = oparser.parse_args()
     return oparser, options, args
+
 
 def main():
     """ As a bonus, this module can be used as a standalone program to play a DRO song!
@@ -438,17 +508,24 @@ def main():
 
     timer_thread = None
     try:
+        calc_ms_length = dro_analysis.DROTotalDelayWithWriteDelayCalculator().sum_delay(dro_song)
+        calc_ms_length_string = dro_util.ms_to_timestr(calc_ms_length)
         if options.render:
             dro_player.play()
             while dro_player.is_playing:
-                sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_player.time_elapsed) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+                sys.stdout.write("\r{} / {}".format(
+                    dro_util.ms_to_timestr(dro_player.time_with_write_delay_elapsed),
+                    calc_ms_length_string))
                 sys.stdout.flush()
                 time.sleep(0.05)
             # Print the end time too (but cheat)
-            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+            sys.stdout.write("\r{} / {}".format(
+                calc_ms_length_string,
+                calc_ms_length_string)
+            )
         else:
             dro_player.play()
-            timer_thread = _TimerUpdateThread(dro_song)
+            timer_thread = _TimerUpdateThread(calc_ms_length)
             timer_thread.start()
             bank = 0
             while dro_player.is_playing:
@@ -470,7 +547,10 @@ def main():
                         bank = 1
                 time.sleep(0.01)
             # Print the end time too (but cheat)
-            sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
+            sys.stdout.write("\r{} / {}".format(
+                calc_ms_length_string,
+                calc_ms_length_string)
+            )
     except KeyboardInterrupt, ke:
         pass
     except Exception, e:
@@ -484,6 +564,7 @@ def main():
             if timer_thread.isAlive(): # not quite right, but meh.
                 timer_thread.join()
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

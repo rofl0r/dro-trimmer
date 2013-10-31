@@ -39,4 +39,4 @@ def task_master():
     return g_task_master
 
 g_app_name = "DRO Trimmer"
-g_app_version = "v4 r2"
+g_app_version = "v4 r3"
