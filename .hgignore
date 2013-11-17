@@ -3,3 +3,4 @@ syntax: glob
 .idea/*
 docs/readme.html
 *.dro
+*.wav

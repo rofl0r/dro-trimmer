@@ -567,3 +567,81 @@ class DRODebugAnalyzer(object):
             print dro_song
             for inst in dro_song.data:
                 print inst
+
+
+class DROSimpleNoteAnalyser(object):
+    PITCH_REGISTERS = frozenset(range(0xA0, 0xA8 + 1))
+    KEY_ON_REGISTERS = frozenset(range(0xB0, 0xB8 + 1))
+    CHANNELS_PER_BANK = 9
+
+    class NoteStatus(object):
+        PITCH_MAP = {
+            0x015B : ' C',
+            0x016B : 'C#',
+            0x0181 : ' D',
+            0x0198 : 'D#',
+            0x01B0 : ' E',
+            0x01CA : ' F',
+            0x01E5 : 'F#',
+            0x0202 : ' G',
+            0x0220 : 'G#',
+            0x0241 : ' A',
+            0x0263 : 'A#',
+            0x0287 : ' B',
+            0x02AE : ' C'
+        }
+
+        def __init__(self, channel=None, note_status_to_clone=None):
+            if note_status_to_clone is not None:
+                self.channel = note_status_to_clone.channel
+                self.pitch = note_status_to_clone.pitch
+                self.octave = note_status_to_clone.octave
+                self.on = note_status_to_clone.on
+            else:
+                self.channel = channel
+                self.pitch = 0
+                self.octave = 0
+                self.on = False
+
+        def __str__(self):
+            # 0x241 = 440.0 hz
+            # 0x241 = 577
+            # 24.7 hz between notes
+            # approx 1.31 per hz
+            closest_value = min(self.PITCH_MAP.keys(), key=lambda x: abs(x - self.pitch))
+            note_name = "%s-%s" % (self.PITCH_MAP[closest_value], self.octave)
+            return "(ch: %s, pitch: %x, oct: %s, note: %s)" % (self.channel, self.pitch, self.octave, note_name)
+
+    def analyze_dro(self, dro_song):
+        """
+        Returns a list of of "Note on" pitch values (as NoteStatus objects), containing one list per channel.
+        Ignores pitch bends and other pitch changes while a note is on.
+
+        @type dro_song: DROSong
+        """
+        channel_notes = [DROSimpleNoteAnalyser.NoteStatus(channel=i + 1) for i in xrange(DROSimpleNoteAnalyser.CHANNELS_PER_BANK * 2)]
+        output = [[] for i in xrange(DROSimpleNoteAnalyser.CHANNELS_PER_BANK * 2)]
+        with dro_song.data_lock:
+            for inst in dro_song.data:
+                # Ignore non-register stuff.
+                if inst.inst_type != dro_data.DROInstruction.T_REGISTER:
+                    continue
+                # If it's A0 - A8, update the pitch
+                elif inst.command in DROSimpleNoteAnalyser.PITCH_REGISTERS:
+                    note_status = self.get_channel_status(channel_notes, inst)
+                    note_status.pitch = (note_status.pitch & 0xFF00) | inst.value
+                # If it's B0 - B8, update the pitch and note on/off
+                elif inst.command in DROSimpleNoteAnalyser.KEY_ON_REGISTERS:
+                    note_status = self.get_channel_status(channel_notes, inst)
+                    note_status.pitch = (note_status.pitch & 0x00FF) | ((inst.value & 0x03) << 8)
+                    note_status.octave = (inst.value & 0x1C) >> 2
+                    orig_on_value = note_status.on
+                    note_status.on = (inst.value & 0x20) > 0
+                    # If note on status changes, make a new entry in the output list
+                    if note_status.on ^ orig_on_value and note_status.on:
+                        output[note_status.channel - 1].append(DROSimpleNoteAnalyser.NoteStatus(note_status_to_clone=note_status))
+        return output
+
+    def get_channel_status(self, channel_notes, inst):
+        channel_index = (inst.command & 0x0F) + (inst.bank * DROSimpleNoteAnalyser.CHANNELS_PER_BANK)
+        return channel_notes[channel_index]
