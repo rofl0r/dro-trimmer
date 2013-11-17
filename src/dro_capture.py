@@ -66,8 +66,9 @@ class DroCapture(object):
             self.data.append(self.long_delay_code)
             self.data.append(delays_to_write - 1)
             long_delays -= delays_to_write
-        self.data.append(self.short_delay_code)
-        self.data.append(short_delays - 1)
+        if short_delays:
+            self.data.append(self.short_delay_code)
+            self.data.append(short_delays - 1)
 
     def render_chip_delay(self):
         pass # do nothing
