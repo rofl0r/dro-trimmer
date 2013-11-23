@@ -243,7 +243,11 @@ class OPLStream(object):
                 samples_to_render -= self.buffer_size
             self.opl.getSamples(tmp_buffer)
             for ostream in self.output_streams:
-                ostream.write(buffer(tmp_audio_buffer))
+                try:
+                    if ostream.is_active():
+                        ostream.write(buffer(tmp_audio_buffer))
+                except IOError:
+                    return
 
     def render_chip_delay(self):
         if self.chip_delay_drift > 0:
@@ -514,8 +518,12 @@ class _TimerUpdateThread(threading.Thread):
 
     def run(self):
         calc_ms_length_string = dro_util.ms_to_timestr(self.calc_ms_length)
+        last_run_time = time.clock()
         while not self.stop_request.isSet():
-            # Pretty rough way of keeping time.
+            curr_time = time.clock()
+            delta = curr_time - last_run_time
+            last_run_time = curr_time
+            self.time_elapsed += delta * 1000
             sys.stdout.write("\r{} / {}".format(
                  dro_util.ms_to_timestr(self.time_elapsed),
                  calc_ms_length_string
@@ -523,7 +531,6 @@ class _TimerUpdateThread(threading.Thread):
             )
             sys.stdout.flush()
             time.sleep(0.01)
-            self.time_elapsed += 10
 
 
 def __parse_arguments():
