@@ -484,6 +484,7 @@ class DTApp(wx.App):
         wx.Window.Destroy(self.mainframe)
         if self.dro_player is not None:
             self.dro_player.stop()
+            self.dro_player.close_audio_output()
 
     def togglePlayback(self, event):
         if self.dro_player is not None:
@@ -534,6 +535,7 @@ def start_gui_app():
         if app is not None:
             if app.dro_player is not None:
                 app.dro_player.stop() # usually not needed, since it's handled by closeFrame
+                app.dro_player.close_audio_output()
             app.Destroy()
 
 if __name__ == "__main__": start_gui_app()

@@ -277,12 +277,8 @@ class DROPlayer(object):
             self.bit_depth = 16
             self.chip_write_delay = 0
         self.channels = channels # crap
-        audio = pyaudio.PyAudio()
-        self.audio_stream = audio.open(
-            format = audio.get_format_from_width(self.bit_depth / 8),
-            channels = self.channels,
-            rate = self.frequency,
-            output = True)
+        self.audio = pyaudio.PyAudio()
+        self.audio_stream = None
         # Set up the WAV Renderer
         self.wav_renderer = WavRenderer(
             self.frequency,
@@ -303,6 +299,21 @@ class DROPlayer(object):
         self.active_percussion = [0xFF, 0xFF]
         self.writes_elapsed = 0
 
+    def init_audio_output(self):
+        if self.audio_stream is None:
+            self.audio_stream = self.audio.open(
+                format = self.audio.get_format_from_width(self.bit_depth / 8),
+                channels = self.channels,
+                rate = self.frequency,
+                output = True)
+
+    def close_audio_output(self):
+        if self.audio_stream is not None:
+            try:
+                self.audio_stream.close()
+            except Exception:
+                pass
+
     def load_song(self, new_song):
         """
         @type new_song: DROSongV2
@@ -321,6 +332,7 @@ class DROPlayer(object):
         self.update_thread = None # This thread gets created only when playing actually begins.
         output_streams = []
         if self.sound_on:
+            self.init_audio_output()
             output_streams.append(self.audio_stream)
         if self.recording_on:
             output_streams.append(self.wav_renderer)
@@ -604,6 +616,7 @@ def main():
         print e
         return 2
     finally:
+        dro_player.close_audio_output()
         if dro_player.is_playing:
             dro_player.stop()
         if timer_thread is not None:
