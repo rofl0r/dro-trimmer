@@ -81,6 +81,9 @@ class WavRenderer(object):
     def set_output_fname(self, output_fname):
         self.wav_fname = "{}.wav".format(output_fname)
 
+    def is_active(self):
+        return self.wav and self.wav._file # a bid dodgy, accessing a "private" property.
+
 
 class ProcessingStreamsList(list):
     def __init__(self):
@@ -244,7 +247,7 @@ class OPLStream(object):
             self.opl.getSamples(tmp_buffer)
             for ostream in self.output_streams:
                 try:
-                    if ostream.is_active():
+                    if hasattr(ostream, 'is_active') and ostream.is_active():
                         ostream.write(buffer(tmp_audio_buffer))
                 except IOError:
                     return
