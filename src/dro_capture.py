@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #
 #    Use, distribution, and modification of the DRO Trimmer binaries, source code,
 #    or documentation, is subject to the terms of the MIT license, as below.
@@ -25,7 +26,7 @@
 import array
 import dro_io
 import dro_data
-
+import dro_util
 
 def generate_registers_to_init():
     registers_to_init = [0x01, 0x04, 0x05, 0x08, 0xBD]
@@ -76,7 +77,16 @@ class DroCapture(object):
         self._bank = value
 
     def write(self, register, value):
-        code = self.code_map[register] | (self.bank << 7)
+        try:
+            code = self.code_map[register]
+        except KeyError:
+            if len(self.code_map) >= 128:
+                raise dro_util.DROTrimmerException("Too many (unknown) registers! Maximum registers used is 128. "
+                "Try deleting some of the instructions that write to unknown registers, using the DRO Trimmer GUI, "
+                "then try splitting to DRO files again.")
+            code = len(self.code_map) + 2
+            self.code_map[register] = code
+        code |= (self.bank << 7)
         self.data.append(code)
         self.data.append(value)
 
