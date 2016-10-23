@@ -540,11 +540,11 @@ def __parse_arguments():
     usage = ("Usage: %prog [options] dro_file\n\n" +
              "Plays a DRO song. Can also be used to render a song to a single WAV file.\n\n" +
              "Keyboard shorcuts:\n" +
-             " 0-9: solo channel\n" +
-             " ~: unmute all channels\n" +
-             " -: switch to the low bank\n" +
-             " +: switch to the high bank (OPL-3)"
-             " CTRL-C: cancel playback"
+             "  0-9: solo channel\n" +
+             "  ~: unmute all channels\n" +
+             "  -: switch to the low bank\n" +
+             "  +: switch to the high bank (OPL-3)\n"
+             "  CTRL-C: cancel playback"
         )
     version = dro_globals.g_app_version
     oparser = optparse.OptionParser(usage, version=version)
