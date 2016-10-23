@@ -235,7 +235,7 @@ class OPLStream(object):
             # Limitation of PyOPL: needs a minimum of two samples.
             return
         samples_to_render = int(samples_to_render // 1)
-        while samples_to_render > 0 and not self.stop_requested:
+        while samples_to_render > 1 and not self.stop_requested:
             if samples_to_render < self.buffer_size:
                 tmp_buffer = self.__create_bytearray((samples_to_render % self.buffer_size))
                 tmp_audio_buffer = buffer(tmp_buffer)
